@@ -47,6 +47,7 @@ import {
   type AnimSpeed,
   type ThemeConfig,
 } from '@/lib/theme'
+import { useNavStore, type NavMode } from '@/lib/nav-prefs'
 import { Avatar, EmptyState, relTime } from '@/components/crm/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -146,6 +147,9 @@ import {
   EyeOff,
   ShieldAlert,
   ExternalLink,
+  Compass,
+  PanelLeft,
+  LayoutDashboard,
 } from 'lucide-react'
 
 // ---------------------------------------------------------------
@@ -176,6 +180,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { key: 'workspace', label: 'Workspace', icon: Building2 },
   { key: 'members', label: 'Members', icon: Users },
+  { key: 'navigation', label: 'Navigation', icon: Compass },
   { key: 'appearance', label: 'Appearance', icon: Palette },
   { key: 'pipelines', label: 'Pipelines', icon: KanbanSquare },
   { key: 'customFields', label: 'Custom Fields', icon: ListPlus },
@@ -405,7 +410,7 @@ function WorkspaceSection() {
                     toast.success('Logo URL set')
                   }}
                 >
-                  <Upload size={14} /> Set demo URL
+                  <Upload size={14} /> Use initials avatar
                 </Button>
               </div>
             </div>
@@ -664,7 +669,112 @@ function InviteMemberDialog({
 }
 
 // ---------------------------------------------------------------
-// 3. Appearance section (THEME ENGINE)
+// 3. Navigation section (Phase 3)
+// ---------------------------------------------------------------
+
+function NavigationSection() {
+  const navMode = useNavStore((s) => s.navMode)
+  const setNavMode = useNavStore((s) => s.setNavMode)
+
+  const options: { value: NavMode; label: string; description: string; icon: React.ComponentType<{ size?: number; className?: string }>; preview: React.ReactNode }[] = [
+    {
+      value: 'sidebar',
+      label: 'Sidebar',
+      description: 'Vertical sidebar on the left. Default mode. Best for power users who want all nav items visible at once.',
+      icon: PanelLeft,
+      preview: (
+        <div className="flex h-24 w-full rounded-lg border border-border overflow-hidden bg-background">
+          <div className="w-12 bg-sidebar border-r border-sidebar-border flex flex-col items-center py-2 gap-2">
+            <div className="h-2 w-6 rounded bg-sidebar-accent" />
+            <div className="h-2 w-6 rounded bg-sidebar-accent/60" />
+            <div className="h-2 w-6 rounded bg-primary/40" />
+            <div className="h-2 w-6 rounded bg-sidebar-accent/60" />
+            <div className="h-2 w-6 rounded bg-sidebar-accent/60" />
+          </div>
+          <div className="flex-1 p-2">
+            <div className="h-2 w-16 rounded bg-muted mb-2" />
+            <div className="h-2 w-full rounded bg-muted/60 mb-1" />
+            <div className="h-2 w-3/4 rounded bg-muted/60" />
+          </div>
+        </div>
+      ),
+    },
+    {
+      value: 'dock',
+      label: 'Floating Dock',
+      description: 'Bottom-center floating glassmorphism dock with magnification. Best for a focused, modern feel. Hides the sidebar entirely.',
+      icon: LayoutDashboard,
+      preview: (
+        <div className="relative h-24 w-full rounded-lg border border-border overflow-hidden bg-background p-2">
+          <div className="h-2 w-16 rounded bg-muted mb-2" />
+          <div className="h-2 w-full rounded bg-muted/60 mb-1" />
+          <div className="h-2 w-3/4 rounded bg-muted/60" />
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-end gap-1.5 px-2 py-1.5 rounded-xl border border-border" style={{ background: 'var(--glass-bg)' }}>
+            {[0,1,2,3,4].map((i) => (
+              <div key={i} className={cn('h-5 w-5 rounded-full', i === 2 ? 'bg-primary/30 h-7 w-7' : 'bg-muted')} />
+            ))}
+          </div>
+        </div>
+      ),
+    },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <SettingsHeader
+        title="Navigation"
+        description="Choose how you want to move around Venom CRM. Your preference is saved to this device and will sync to your workspace preferences in production."
+      />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {options.map((opt) => {
+          const selected = navMode === opt.value
+          return (
+            <button
+              key={opt.value}
+              onClick={() => setNavMode(opt.value)}
+              className={cn(
+                'text-left p-4 rounded-xl border-2 transition-all',
+                selected
+                  ? 'border-primary bg-primary/5 shadow-soft'
+                  : 'border-border hover:border-primary/40 hover:bg-muted/40'
+              )}
+              aria-pressed={selected}
+            >
+              <div className="flex items-start gap-3 mb-3">
+                <div className={cn('h-9 w-9 rounded-lg grid place-items-center shrink-0', selected ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>
+                  <opt.icon size={16} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] font-semibold">{opt.label}</span>
+                    {opt.value === 'sidebar' && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Default</span>
+                    )}
+                    {selected && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary text-primary-foreground">Active</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{opt.description}</p>
+                </div>
+              </div>
+              {opt.preview}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="p-3 rounded-lg bg-muted/40 border border-border/60 flex items-start gap-2.5">
+        <Info size={14} className="text-muted-foreground shrink-0 mt-0.5" />
+        <div className="text-[11px] text-muted-foreground leading-relaxed">
+          <strong className="text-foreground">Persistence:</strong> Your navigation preference is stored in <code className="px-1 py-0.5 rounded bg-background border border-border text-[10px]">localStorage</code> under <code className="px-1 py-0.5 rounded bg-background border border-border text-[10px]">venom-nav-preferences</code>. In production with Supabase, this will sync to a <code className="px-1 py-0.5 rounded bg-background border border-border text-[10px]">workspace_preferences</code> table so it follows you across devices.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------
+// 4. Appearance section (THEME ENGINE)
 // ---------------------------------------------------------------
 
 function AppearanceSection() {
@@ -938,10 +1048,10 @@ function ThemePreview({ cfg }: { cfg: ThemeConfig }) {
       >
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-[13px] font-semibold">Venom Corp — Q3 deal</div>
+            <div className="text-[13px] font-semibold">Sample deal preview</div>
             <div className="text-[11.5px] text-muted-foreground">Expected close · Aug 22</div>
           </div>
-          <Badge>$48,000</Badge>
+          <Badge>₹12,50,000</Badge>
         </div>
         <div className="mt-3 flex items-center gap-2">
           <Button size="sm" style={{ borderRadius: cfg.radius }}>
@@ -2415,6 +2525,7 @@ export function SettingsView() {
             >
               {section === 'workspace' && <WorkspaceSection />}
               {section === 'members' && <MembersSection />}
+              {section === 'navigation' && <NavigationSection />}
               {section === 'appearance' && <AppearanceSection />}
               {section === 'pipelines' && <PipelinesSection />}
               {section === 'customFields' && <CustomFieldsSection />}

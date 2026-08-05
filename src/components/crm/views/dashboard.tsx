@@ -17,14 +17,13 @@ import {
   PriorityPill,
   money,
   relTime,
-  EmptyState,
 } from '@/components/crm/shared'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { ThinkingState } from '@/components/crm/thinking'
 import { useThinkingTask } from '@/lib/thinking'
 import { cn } from '@/lib/utils'
-import { motion, type Variants } from 'framer-motion'
+import { motion, useReducedMotion, type Variants } from 'framer-motion'
 import {
   Area,
   AreaChart,
@@ -211,21 +210,26 @@ function KpiCard({
   deltaPositive,
   icon: Icon,
   accent,
+  muted,
 }: {
   label: string
   value: string
-  delta: string
+  /** When null, the delta row is hidden (used for zero values). */
+  delta: string | null
   deltaPositive: boolean
   icon: IconType
   accent: string
+  /** When true, mutes the accent line + icon (used for zero values). */
+  muted?: boolean
 }) {
   return (
     <div className="card-premium relative overflow-hidden bg-card text-card-foreground rounded-xl border border-border/60 p-5 shadow-soft transition-all duration-300 hover:-translate-y-px hover:shadow-glow">
-      {/* gradient accent line on top */}
+      {/* gradient accent line on top — muted when zero */}
       <div
-        className="absolute top-0 left-0 right-0 h-[2px]"
+        className="absolute top-0 left-0 right-0 h-[2px] transition-opacity"
         style={{
           background: `linear-gradient(90deg, ${accent}, color-mix(in oklch, ${accent} 30%, transparent))`,
+          opacity: muted ? 0.25 : 1,
         }}
       />
       <div className="flex items-start justify-between mb-3">
@@ -233,10 +237,11 @@ function KpiCard({
           {label}
         </div>
         <div
-          className="w-8 h-8 rounded-lg grid place-items-center shrink-0"
+          className="w-8 h-8 rounded-lg grid place-items-center shrink-0 transition-opacity"
           style={{
             background: `color-mix(in oklch, ${accent} 14%, transparent)`,
             color: accent,
+            opacity: muted ? 0.5 : 1,
           }}
         >
           <Icon size={15} />
@@ -245,20 +250,24 @@ function KpiCard({
       <div className="text-2xl md:text-[28px] font-semibold tracking-tight tabular-nums leading-none">
         {value}
       </div>
-      <div className="flex items-center gap-1.5 mt-3 text-xs">
-        <span
-          className={cn(
-            'inline-flex items-center gap-0.5 font-medium tabular-nums',
-            deltaPositive
-              ? 'text-emerald-600 dark:text-emerald-400'
-              : 'text-rose-600 dark:text-rose-400'
-          )}
-        >
-          {deltaPositive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-          {delta}
-        </span>
-        <span className="text-muted-foreground">vs last month</span>
-      </div>
+      {delta ? (
+        <div className="flex items-center gap-1.5 mt-3 text-xs">
+          <span
+            className={cn(
+              'inline-flex items-center gap-0.5 font-medium tabular-nums',
+              deltaPositive
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : 'text-rose-600 dark:text-rose-400'
+            )}
+          >
+            {deltaPositive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+            {delta}
+          </span>
+          <span className="text-muted-foreground">vs last month</span>
+        </div>
+      ) : (
+        <div className="mt-3 text-[11px] text-muted-foreground/70">No data yet</div>
+      )}
     </div>
   )
 }
@@ -292,7 +301,11 @@ function ChartTooltip({
   )
 }
 
-function RevenueChart({ data }: { data: MonthlyPoint[] }) {
+function RevenueChart({ data, isEmpty }: { data: MonthlyPoint[]; isEmpty?: boolean }) {
+  const allZero =
+    isEmpty ||
+    !data.length ||
+    data.every((d) => (d.revenue || 0) === 0 && (d.pipeline || 0) === 0)
   return (
     <CardShell className="h-full flex flex-col">
       <CardHead
@@ -305,66 +318,82 @@ function RevenueChart({ data }: { data: MonthlyPoint[] }) {
           </div>
         }
       />
-      <div className="h-[260px] -ml-2 flex-1">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="pipeGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--chart-2)" stopOpacity={0.25} />
-                <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="var(--border)"
-              strokeOpacity={0.5}
-              vertical={false}
-            />
-            <XAxis
-              dataKey="label"
-              stroke="var(--muted-foreground)"
-              fontSize={11}
-              tickLine={false}
-              axisLine={false}
-              dy={8}
-            />
-            <YAxis
-              stroke="var(--muted-foreground)"
-              fontSize={11}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v) => `${(Number(v) / 1000).toFixed(0)}k`}
-              width={36}
-            />
-            <Tooltip
-              content={<ChartTooltip />}
-              cursor={{ stroke: 'var(--border)', strokeDasharray: '3 3' }}
-            />
-            <Area
-              type="monotone"
-              dataKey="revenue"
-              stroke="var(--chart-1)"
-              strokeWidth={2}
-              fill="url(#revGrad)"
-              dot={false}
-              activeDot={{ r: 4, stroke: 'var(--background)', strokeWidth: 2 }}
-            />
-            <Area
-              type="monotone"
-              dataKey="pipeline"
-              stroke="var(--chart-2)"
-              strokeWidth={2}
-              fill="url(#pipeGrad)"
-              dot={false}
-              activeDot={{ r: 4, stroke: 'var(--background)', strokeWidth: 2 }}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
+      {allZero ? (
+        <div className="h-[260px] flex-1 relative grid place-items-center">
+          {/* muted dashed baseline */}
+          <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-border/60" />
+          <div className="relative flex flex-col items-center text-center px-6">
+            <div className="w-12 h-12 rounded-full bg-muted grid place-items-center text-muted-foreground mb-3">
+              <TrendingUp size={20} />
+            </div>
+            <div className="text-[15px] font-semibold">No revenue data yet</div>
+            <p className="text-[12px] text-muted-foreground mt-1 max-w-xs">
+              Create your first lead with an estimated value to see your revenue chart.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="h-[260px] -ml-2 flex-1">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="pipeGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--chart-2)" stopOpacity={0.25} />
+                  <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="var(--border)"
+                strokeOpacity={0.5}
+                vertical={false}
+              />
+              <XAxis
+                dataKey="label"
+                stroke="var(--muted-foreground)"
+                fontSize={11}
+                tickLine={false}
+                axisLine={false}
+                dy={8}
+              />
+              <YAxis
+                stroke="var(--muted-foreground)"
+                fontSize={11}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v) => `${(Number(v) / 1000).toFixed(0)}k`}
+                width={36}
+              />
+              <Tooltip
+                content={<ChartTooltip />}
+                cursor={{ stroke: 'var(--border)', strokeDasharray: '3 3' }}
+              />
+              <Area
+                type="monotone"
+                dataKey="revenue"
+                stroke="var(--chart-1)"
+                strokeWidth={2}
+                fill="url(#revGrad)"
+                dot={false}
+                activeDot={{ r: 4, stroke: 'var(--background)', strokeWidth: 2 }}
+              />
+              <Area
+                type="monotone"
+                dataKey="pipeline"
+                stroke="var(--chart-2)"
+                strokeWidth={2}
+                fill="url(#pipeGrad)"
+                dot={false}
+                activeDot={{ r: 4, stroke: 'var(--background)', strokeWidth: 2 }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </CardShell>
   )
 }
@@ -399,51 +428,63 @@ function LeadSourcesDonut({
   data: LeadSource[]
   total: number
 }) {
+  const isEmpty = total === 0 || data.every((d) => (d.value || 0) === 0)
   return (
     <CardShell className="h-full flex flex-col">
       <CardHead title="Lead Sources" subtitle="By channel" />
-      {data.length === 0 ? (
-        <div className="h-[180px] grid place-items-center text-xs text-muted-foreground">
-          No lead sources yet
+      {isEmpty ? (
+        <div className="flex-1 flex flex-col items-center justify-center py-6">
+          {/* empty donut ring */}
+          <div className="relative w-[140px] h-[140px] my-2">
+            <div className="absolute inset-0 rounded-full border-[14px] border-muted/60" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-[15px] font-semibold text-muted-foreground">No leads yet</span>
+            </div>
+          </div>
+          <p className="text-[12px] text-muted-foreground mt-2 max-w-[220px] text-center">
+            Add leads with a source to see your channel breakdown here.
+          </p>
         </div>
       ) : (
-        <div className="relative h-[180px] my-2">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={data}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={56}
-                outerRadius={80}
-                paddingAngle={2}
-                stroke="none"
-              >
-                {data.map((_, i) => (
-                  <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip content={<DonutTooltip />} cursor={false} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-2xl font-semibold tabular-nums">{total}</span>
-            <span className="text-[11px] text-muted-foreground">total leads</span>
+        <>
+          <div className="relative h-[180px] my-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={data}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={56}
+                  outerRadius={80}
+                  paddingAngle={2}
+                  stroke="none"
+                >
+                  {data.map((_, i) => (
+                    <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip content={<DonutTooltip />} cursor={false} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-2xl font-semibold tabular-nums">{total}</span>
+              <span className="text-[11px] text-muted-foreground">total leads</span>
+            </div>
           </div>
-        </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-3">
+            {data.slice(0, 6).map((s, i) => (
+              <div key={s.name} className="flex items-center gap-2 text-[11px]">
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }}
+                />
+                <span className="truncate text-muted-foreground capitalize">{s.name}</span>
+                <span className="ml-auto font-medium tabular-nums">{s.value}</span>
+              </div>
+            ))}
+          </div>
+        </>
       )}
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-3">
-        {data.slice(0, 6).map((s, i) => (
-          <div key={s.name} className="flex items-center gap-2 text-[11px]">
-            <span
-              className="w-2 h-2 rounded-full shrink-0"
-              style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }}
-            />
-            <span className="truncate text-muted-foreground capitalize">{s.name}</span>
-            <span className="ml-auto font-medium tabular-nums">{s.value}</span>
-          </div>
-        ))}
-      </div>
     </CardShell>
   )
 }
@@ -463,6 +504,8 @@ function PipelineOverview({ pipelines }: { pipelines: PipelineSummary[] }) {
         <div className="space-y-5 flex-1">
           {pipelines.map((p) => {
             const total = p.stages.reduce((s, st) => s + st.value, 0)
+            const allEmpty =
+              p.stages.length === 0 || p.stages.every((st) => st.dealCount === 0)
             return (
               <div key={p.id}>
                 <div className="flex items-center justify-between mb-1.5">
@@ -497,25 +540,31 @@ function PipelineOverview({ pipelines }: { pipelines: PipelineSummary[] }) {
                     <div className="h-full w-full bg-muted/50" />
                   )}
                 </div>
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
-                  {p.stages
-                    .filter((s) => s.value > 0)
-                    .map((st) => (
-                      <span
-                        key={st.id}
-                        className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
-                      >
+                {allEmpty ? (
+                  <div className="mt-2 text-[11px] text-muted-foreground">
+                    No deals in pipeline yet
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
+                    {p.stages
+                      .filter((s) => s.value > 0 || s.dealCount > 0)
+                      .map((st) => (
                         <span
-                          className="w-1.5 h-1.5 rounded-full"
-                          style={{ background: st.color }}
-                        />
-                        {st.name}
-                        <span className="tabular-nums text-foreground/70">
-                          {st.dealCount}
+                          key={st.id}
+                          className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+                        >
+                          <span
+                            className="w-1.5 h-1.5 rounded-full"
+                            style={{ background: st.color }}
+                          />
+                          {st.name}
+                          <span className="tabular-nums text-foreground/70">
+                            {st.dealCount}
+                          </span>
                         </span>
-                      </span>
-                    ))}
-                </div>
+                      ))}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -542,8 +591,22 @@ function TasksList({ tasks }: { tasks: Task[] }) {
         }
       />
       {tasks.length === 0 ? (
-        <div className="text-xs text-muted-foreground py-10 text-center flex-1">
-          No upcoming tasks
+        <div className="flex-1 flex flex-col items-center justify-center py-10 px-6 text-center">
+          <div className="w-10 h-10 rounded-xl bg-muted grid place-items-center text-muted-foreground mb-3">
+            <ListTodo size={18} />
+          </div>
+          <div className="text-[15px] font-semibold">No upcoming tasks</div>
+          <p className="text-[12px] text-muted-foreground mt-1 max-w-xs">
+            Create a task to start tracking work.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-4 h-8"
+            onClick={() => openDrawer('task-new')}
+          >
+            <ListTodo size={13} /> Create task
+          </Button>
         </div>
       ) : (
         <div className="flex-1 -mx-2 max-h-[300px] overflow-y-auto scroll-area">
@@ -596,8 +659,22 @@ function RecentLeadsList({ leads }: { leads: Lead[] }) {
         }
       />
       {leads.length === 0 ? (
-        <div className="text-xs text-muted-foreground py-10 text-center flex-1">
-          No leads yet
+        <div className="flex-1 flex flex-col items-center justify-center py-10 px-6 text-center">
+          <div className="w-10 h-10 rounded-xl bg-muted grid place-items-center text-muted-foreground mb-3">
+            <UserPlus size={18} />
+          </div>
+          <div className="text-[15px] font-semibold">No leads yet</div>
+          <p className="text-[12px] text-muted-foreground mt-1 max-w-xs">
+            Add your first lead to start tracking deals.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-4 h-8"
+            onClick={() => openDrawer('lead-new')}
+          >
+            <UserPlus size={13} /> Create lead
+          </Button>
         </div>
       ) : (
         <div className="flex-1 -mx-2 max-h-[300px] overflow-y-auto scroll-area">
@@ -645,8 +722,14 @@ function ActivityFeed({ activities }: { activities: Activity[] }) {
     <CardShell className="h-full flex flex-col">
       <CardHead title="Activity Feed" subtitle="Latest events" />
       {activities.length === 0 ? (
-        <div className="text-xs text-muted-foreground py-10 text-center flex-1">
-          No recent activity
+        <div className="flex-1 flex flex-col items-center justify-center py-10 px-6 text-center">
+          <div className="w-10 h-10 rounded-xl bg-muted grid place-items-center text-muted-foreground mb-3">
+            <ActivityIcon size={18} />
+          </div>
+          <div className="text-[15px] font-semibold">No activity yet</div>
+          <p className="text-[12px] text-muted-foreground mt-1 max-w-xs">
+            Activity from your team and automations will appear here.
+          </p>
         </div>
       ) : (
         <div className="flex-1 -mx-1 max-h-[360px] overflow-y-auto scroll-area">
@@ -814,31 +897,47 @@ function DashboardSkeleton() {
 }
 
 // ---------------------------------------------------------------
-// Empty state
+// Welcome banner — shown at the top of the dashboard when the workspace is truly fresh
+// (no leads, no deals, no contacts). The rest of the dashboard renders below it.
 // ---------------------------------------------------------------
-function DashboardEmpty() {
+function WelcomeBanner() {
   const openDrawer = useAppStore((s) => s.openDrawer)
   const navigate = useAppStore((s) => s.navigate)
+  const prefersReduced = useReducedMotion()
   return (
-    <div className="grid place-items-center p-4 md:p-10 min-h-[60vh]">
-      <EmptyState
-        icon={<Sparkles size={20} />}
-        title="Welcome to your dashboard"
-        hint="Once you start adding leads, deals, and tasks, your key metrics, charts, and recent activity will appear here."
-        action={
-          <div className="flex gap-2">
-            <Button onClick={() => openDrawer('lead-new')}>
-              <UserPlus size={14} />
-              New Lead
-            </Button>
-            <Button variant="outline" onClick={() => navigate('import')}>
-              <Upload size={14} />
-              Import CSV
-            </Button>
+    <motion.div
+      variants={item}
+      className={cn(
+        'col-span-12 relative overflow-hidden rounded-xl border border-border/60 bg-card p-5 md:p-6 shadow-soft',
+        prefersReduced ? '' : 'hover:shadow-glow transition-shadow duration-300'
+      )}
+    >
+      {/* subtle background flourish */}
+      <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-primary/5 blur-3xl pointer-events-none" />
+      <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-semibold uppercase tracking-wide">
+              <Sparkles size={11} /> New workspace
+            </span>
           </div>
-        }
-      />
-    </div>
+          <h2 className="text-[18px] md:text-[20px] font-semibold tracking-tight">
+            Welcome to Venom CRM 👋
+          </h2>
+          <p className="text-[13px] text-muted-foreground mt-1 max-w-xl">
+            Get started by creating your first lead or importing a CSV. Your dashboard will populate as you add data.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <Button onClick={() => openDrawer('lead-new')}>
+            <UserPlus size={14} /> Create Lead
+          </Button>
+          <Button variant="outline" onClick={() => navigate('import')}>
+            <Upload size={14} /> Import CSV
+          </Button>
+        </div>
+      </div>
+    </motion.div>
   )
 }
 
@@ -866,53 +965,66 @@ export function DashboardView() {
   }, [refetch, startSequence, isRefreshing])
 
   if (isLoading) return <DashboardSkeleton />
-  if (!data) return <DashboardEmpty />
 
-  const m = data.metrics
-  const isEmpty =
-    !m ||
-    (m.revenue === 0 &&
-      m.pipelineValue === 0 &&
-      m.dealCount === 0 &&
-      m.leadCount === 0 &&
-      (data.activities?.length ?? 0) === 0 &&
-      (data.upcomingTasks?.length ?? 0) === 0)
-  if (isEmpty) return <DashboardEmpty />
+  // Safe defaults so the dashboard always renders structure (even with no data).
+  const ZERO_METRICS: DashboardMetrics = {
+    revenue: 0, pipelineValue: 0, weightedPipeline: 0,
+    dealCount: 0, wonDeals: 0, lostDeals: 0, openDeals: 0,
+    leadCount: 0, contactCount: 0, avgDealSize: 0,
+    conversionRate: 0, wonRate: 0,
+  }
+  const m: DashboardMetrics = data?.metrics ?? ZERO_METRICS
+  const monthly = data?.monthly ?? []
+  const leadSources = data?.leadSources ?? []
+  const pipelines = data?.pipelines ?? []
+  const upcomingTasks = data?.upcomingTasks ?? []
+  const recentLeads = data?.recentLeads ?? []
+  const activities = data?.activities ?? []
+
+  // Truly fresh workspace — no leads, deals, or contacts at all.
+  const isFresh = m.leadCount === 0 && m.dealCount === 0 && m.contactCount === 0
 
   const kpis = [
     {
       label: 'Revenue',
       value: money(m.revenue),
-      delta: '+12.4%',
+      delta: m.revenue > 0 ? '+12.4%' : null,
       deltaPositive: true,
       icon: DollarSign,
       accent: 'var(--chart-2)',
+      muted: m.revenue === 0,
     },
     {
       label: 'Pipeline Value',
       value: money(m.pipelineValue),
-      delta: '+8.1%',
+      delta: m.pipelineValue > 0 ? '+8.1%' : null,
       deltaPositive: true,
       icon: TrendingUp,
       accent: 'var(--chart-1)',
+      muted: m.pipelineValue === 0,
     },
     {
       label: 'Open Deals',
       value: String(m.openDeals ?? 0),
-      delta: '+3',
+      delta: (m.openDeals ?? 0) > 0 ? '+3' : null,
       deltaPositive: true,
       icon: Target,
       accent: 'var(--chart-4)',
+      muted: (m.openDeals ?? 0) === 0,
     },
     {
       label: 'Conversion Rate',
       value: `${m.conversionRate ?? 0}%`,
-      delta: '-1.2%',
+      delta: (m.conversionRate ?? 0) > 0 ? '-1.2%' : null,
       deltaPositive: false,
       icon: Percent,
       accent: 'var(--chart-5)',
+      muted: (m.conversionRate ?? 0) === 0,
     },
   ]
+
+  // True when there's no revenue or pipeline data to chart.
+  const revenueChartEmpty = m.revenue === 0 && m.pipelineValue === 0
 
   return (
     <div className="relative">
@@ -922,6 +1034,9 @@ export function DashboardView() {
       animate="show"
       className="grid grid-cols-12 gap-4 p-4 md:p-6"
     >
+      {/* Welcome banner — only for truly fresh workspaces */}
+      {isFresh && <WelcomeBanner />}
+
       {/* KPI strip */}
       <motion.div
         variants={item}
@@ -939,35 +1054,35 @@ export function DashboardView() {
 
       {/* Revenue chart */}
       <motion.div variants={item} className="col-span-12 lg:col-span-8">
-        <RevenueChart data={data.monthly || []} />
+        <RevenueChart data={monthly} isEmpty={revenueChartEmpty} />
       </motion.div>
 
       {/* Lead sources donut */}
       <motion.div variants={item} className="col-span-12 lg:col-span-4">
         <LeadSourcesDonut
-          data={data.leadSources || []}
+          data={leadSources}
           total={m.leadCount ?? 0}
         />
       </motion.div>
 
       {/* Pipeline overview */}
       <motion.div variants={item} className="col-span-12 lg:col-span-6">
-        <PipelineOverview pipelines={data.pipelines || []} />
+        <PipelineOverview pipelines={pipelines} />
       </motion.div>
 
       {/* Upcoming tasks */}
       <motion.div variants={item} className="col-span-12 lg:col-span-6">
-        <TasksList tasks={data.upcomingTasks || []} />
+        <TasksList tasks={upcomingTasks} />
       </motion.div>
 
       {/* Recent leads */}
       <motion.div variants={item} className="col-span-12 lg:col-span-6">
-        <RecentLeadsList leads={data.recentLeads || []} />
+        <RecentLeadsList leads={recentLeads} />
       </motion.div>
 
       {/* Activity feed */}
       <motion.div variants={item} className="col-span-12 lg:col-span-6">
-        <ActivityFeed activities={data.activities || []} />
+        <ActivityFeed activities={activities} />
       </motion.div>
     </motion.div>
 

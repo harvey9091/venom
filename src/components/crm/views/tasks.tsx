@@ -339,7 +339,7 @@ function StatusColumn({
         <ColumnBody status={status}>
           {tasks.length === 0 && (
             <div className="h-24 rounded-lg border border-dashed border-border/50 grid place-items-center text-[11px] text-muted-foreground">
-              Drop tasks here
+              No tasks
             </div>
           )}
           {tasks.map((t) => (
@@ -1483,19 +1483,19 @@ export function TasksView() {
 
       {isLoading ? (
         <TasksSkeleton view={view} />
-      ) : filtered.length === 0 && view !== 'calendar' ? (
+      ) : filtered.length === 0 && view === 'list' ? (
         <div className="rounded-xl border border-border/60 bg-card shadow-soft">
           <EmptyState
             icon={<ListTodo className="size-5" />}
             title={
               q || statusFilter !== 'all' || priorityFilter !== 'all' || assigneeFilter !== 'all'
                 ? 'No tasks match your filters'
-                : 'No tasks yet'
+                : 'No tasks'
             }
             hint={
               q || statusFilter !== 'all' || priorityFilter !== 'all' || assigneeFilter !== 'all'
                 ? 'Try adjusting the search query or filters.'
-                : 'Create your first task to start tracking work. Assign owners, set due dates, and break it down into subtasks.'
+                : 'Create your first task to start tracking work.'
             }
             action={
               !q &&
@@ -1503,7 +1503,7 @@ export function TasksView() {
               priorityFilter === 'all' &&
               assigneeFilter === 'all' ? (
                 <Button onClick={() => useAppStore.getState().openDrawer('task-new')}>
-                  <Plus className="size-4" /> New task
+                  <Plus className="size-4" /> Create Task
                 </Button>
               ) : undefined
             }

@@ -317,7 +317,7 @@ function BoardColumn({ status, leads }: { status: StatusMeta; leads: Lead[] }) {
         >
           {leads.length === 0 && (
             <div className="h-16 rounded-md border border-dashed border-border/40 grid place-items-center text-[10px] text-muted-foreground">
-              Drop here
+              No leads
             </div>
           )}
           {leads.map((l) => (
@@ -1452,17 +1452,27 @@ export function LeadsView() {
               <div className="rounded-lg border border-border/60 bg-card shadow-soft">
                 <EmptyState
                   icon={<UserPlus className="size-5" />}
-                  title="No leads yet"
-                  hint="Create your first lead or import a CSV to get started."
+                  title={
+                    q || status !== 'all' || owner !== 'all'
+                      ? 'No leads match your filters'
+                      : 'No leads found'
+                  }
+                  hint={
+                    q || status !== 'all' || owner !== 'all'
+                      ? 'Try adjusting the search query or filters.'
+                      : 'Create your first lead or import a CSV to get started.'
+                  }
                   action={
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
-                        <Upload className="size-4" /> Import CSV
-                      </Button>
-                      <Button size="sm" onClick={() => useAppStore.getState().openDrawer('lead-new')}>
-                        <Plus className="size-4" /> New Lead
-                      </Button>
-                    </div>
+                    q || status !== 'all' || owner !== 'all' ? undefined : (
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+                          <Upload className="size-4" /> Import CSV
+                        </Button>
+                        <Button size="sm" onClick={() => useAppStore.getState().openDrawer('lead-new')}>
+                          <Plus className="size-4" /> Create Lead
+                        </Button>
+                      </div>
+                    )
                   }
                 />
               </div>
@@ -1484,14 +1494,6 @@ export function LeadsView() {
                     ))}
                   </div>
                 ))}
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="rounded-lg border border-border/60 bg-card shadow-soft">
-                <EmptyState
-                  icon={<UserPlus className="size-5" />}
-                  title="No leads to display"
-                  hint="Create a lead to see it on the board."
-                />
               </div>
             ) : (
               <LeadsBoard leads={filtered} />

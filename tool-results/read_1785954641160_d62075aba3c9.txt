@@ -1,0 +1,1507 @@
+     1→'use client'
+     2→
+     3→/**
+     4→ * Venom CRM — Leads view (Phase 2 refactor)
+     5→ *
+     6→ * PRIMARY CRM entity. Twenty CRM-inspired compact, dense layout.
+     7→ *
+     8→ *   ┌─ Header strip (h-12) ────────────────────────────────────────────┐
+     9→ *   │  Title + count │ search │ status │ owner │ Import CSV │ + New lead │
+    10→ *   ├─ Tabs ────────────────────────────────────────────────────────────┤
+    11→ *   │  Table | Board                                                     │
+    12→ *   │  • Table: .venom-table — 13 cols, inline-editable status, sortable │
+    13→ *   │  • Board: 9-column Kanban (dnd-kit)                                │
+    14→ *   ├─ Bulk action bar (h-10, slides in when rows selected) ────────────┤
+    15→ *   │  N selected │ Assign │ Tag │ Delete                                │
+    16→ *   └────────────────────────────────────────────────────────────────────┘
+    17→ *
+    18→ * Import CSV opens a 4-step wizard Dialog (Upload → Map → Review → Done)
+    19→ * with ThinkingState progress (rotating labels via useThinkingTask).
+    20→ */
+    21→
+    22→import * as React from 'react'
+    23→import { useLeads, useLeadMutations, useSettings } from '@/lib/hooks'
+    24→import { useAppStore } from '@/lib/store'
+    25→import {
+    26→  Avatar,
+    27→  ScoreBar,
+    28→  money,
+    29→  relTime,
+    30→  EmptyState,
+    31→} from '@/components/crm/shared'
+    32→import { Button } from '@/components/ui/button'
+    33→import { Input } from '@/components/ui/input'
+    34→import { Textarea } from '@/components/ui/textarea'
+    35→import { Checkbox } from '@/components/ui/checkbox'
+    36→import { Badge } from '@/components/ui/badge'
+    37→import { Skeleton } from '@/components/ui/skeleton'
+    38→import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+    39→import {
+    40→  Select,
+    41→  SelectTrigger,
+    42→  SelectValue,
+    43→  SelectContent,
+    44→  SelectItem,
+    45→} from '@/components/ui/select'
+    46→import {
+    47→  Popover,
+    48→  PopoverTrigger,
+    49→  PopoverContent,
+    50→} from '@/components/ui/popover'
+    51→import {
+    52→  Dialog,
+    53→  DialogContent,
+    54→  DialogHeader,
+    55→  DialogTitle,
+    56→  DialogDescription,
+    57→} from '@/components/ui/dialog'
+    58→import {
+    59→  DropdownMenu,
+    60→  DropdownMenuTrigger,
+    61→  DropdownMenuContent,
+    62→  DropdownMenuItem,
+    63→  DropdownMenuSeparator,
+    64→} from '@/components/ui/dropdown-menu'
+    65→import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+    66→import { Label } from '@/components/ui/label'
+    67→import {
+    68→  DndContext,
+    69→  PointerSensor,
+    70→  useSensor,
+    71→  useSensors,
+    72→  closestCorners,
+    73→  type DragEndEvent,
+    74→} from '@dnd-kit/core'
+    75→import {
+    76→  useSortable,
+    77→  SortableContext,
+    78→  verticalListSortingStrategy,
+    79→} from '@dnd-kit/sortable'
+    80→import { CSS } from '@dnd-kit/utilities'
+    81→import { motion, useReducedMotion, AnimatePresence } from 'framer-motion'
+    82→import { ThinkingState, useThinkingTask, useThinkingStore } from '@/components/crm/thinking'
+    83→import { toast } from 'sonner'
+    84→import { cn } from '@/lib/utils'
+    85→import type { Lead, LeadStatus, Membership } from '@/lib/types'
+    86→import {
+    87→  Plus,
+    88→  Search,
+    89→  ArrowUpDown,
+    90→  ArrowUp,
+    91→  ArrowDown,
+    92→  MoreHorizontal,
+    93→  Pencil,
+    94→  Trash2,
+    95→  LayoutGrid,
+    96→  Table as TableIcon,
+    97→  Upload,
+    98→  FileSpreadsheet,
+    99→  ChevronDown,
+   100→  X,
+   101→  GripVertical,
+   102→  Check,
+   103→  UserPlus,
+   104→  Tag as TagIcon,
+   105→  Users as UsersIcon,
+   106→  ClipboardPaste,
+   107→  Download,
+   108→  CheckCircle2,
+   109→  RefreshCw,
+   110→} from 'lucide-react'
+   111→
+   112→// ----------------------------------------------------------------
+   113→// Constants
+   114→// ----------------------------------------------------------------
+   115→
+   116→interface StatusMeta {
+   117→  value: LeadStatus
+   118→  label: string
+   119→  dot: string
+   120→  pill: string
+   121→}
+   122→
+   123→const LEAD_STATUSES: StatusMeta[] = [
+   124→  { value: 'new', label: 'New', dot: 'bg-slate-400', pill: 'bg-slate-500/15 text-slate-600 dark:text-slate-300' },
+   125→  { value: 'contacted', label: 'Contacted', dot: 'bg-blue-500', pill: 'bg-blue-500/15 text-blue-600 dark:text-blue-300' },
+   126→  { value: 'qualified', label: 'Qualified', dot: 'bg-violet-500', pill: 'bg-violet-500/15 text-violet-600 dark:text-violet-300' },
+   127→  { value: 'unqualified', label: 'Unqualified', dot: 'bg-rose-500', pill: 'bg-rose-500/15 text-rose-600 dark:text-rose-300' },
+   128→  { value: 'proposal_sent', label: 'Proposal Sent', dot: 'bg-amber-500', pill: 'bg-amber-500/15 text-amber-600 dark:text-amber-300' },
+   129→  { value: 'negotiation', label: 'Negotiation', dot: 'bg-orange-500', pill: 'bg-orange-500/15 text-orange-600 dark:text-orange-300' },
+   130→  { value: 'won', label: 'Won', dot: 'bg-emerald-500', pill: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300' },
+   131→  { value: 'lost', label: 'Lost', dot: 'bg-red-500', pill: 'bg-red-500/15 text-red-600 dark:text-red-300' },
+   132→  { value: 'archived', label: 'Archived', dot: 'bg-gray-500', pill: 'bg-gray-500/15 text-gray-600 dark:text-gray-300' },
+   133→]
+   134→
+   135→const STATUS_MAP: Record<LeadStatus, StatusMeta> = LEAD_STATUSES.reduce((acc, s) => {
+   136→  acc[s.value] = s
+   137→  return acc
+   138→}, {} as Record<LeadStatus, StatusMeta>)
+   139→
+   140→const SOURCES = ['website', 'referral', 'ads', 'cold-outreach', 'event', 'other']
+   141→
+   142→// CSV import target fields
+   143→const TARGET_FIELDS = ['fullName', 'email', 'phone', 'source', 'score', 'estimatedValue'] as const
+   144→type TargetField = typeof TARGET_FIELDS[number] | '__skip__'
+   145→
+   146→const TEMPLATE_CSV =
+   147→  'fullName,email,phone,source,score,estimatedValue\n' +
+   148→  'Aarav Sharma,aarav@acme.in,+919876543210,website,82,450000\n' +
+   149→  'Priya Patel,priya@brightpoint.in,+919812345678,referral,67,320000\n' +
+   150→  'Rohan Mehta,rohan@nova.in,+919900112233,ads,45,180000\n'
+   151→
+   152→// ----------------------------------------------------------------
+   153→// Helpers
+   154→// ----------------------------------------------------------------
+   155→
+   156→function useDebounced<T>(value: T, delay = 250): T {
+   157→  const [debounced, setDebounced] = React.useState(value)
+   158→  React.useEffect(() => {
+   159→    const t = setTimeout(() => setDebounced(value), delay)
+   160→    return () => clearTimeout(t)
+   161→  }, [value, delay])
+   162→  return debounced
+   163→}
+   164→
+   165→/** Minimal RFC-4180 CSV parser: handles quoted fields, escaped quotes, CRLF. */
+   166→function parseCSV(text: string): string[][] {
+   167→  const rows: string[][] = []
+   168→  let row: string[] = []
+   169→  let field = ''
+   170→  let inQuotes = false
+   171→
+   172→  for (let i = 0; i < text.length; i++) {
+   173→    const c = text[i]
+   174→
+   175→    if (inQuotes) {
+   176→      if (c === '"') {
+   177→        if (text[i + 1] === '"') {
+   178→          field += '"'
+   179→          i++
+   180→        } else {
+   181→          inQuotes = false
+   182→        }
+   183→      } else {
+   184→        field += c
+   185→      }
+   186→      continue
+   187→    }
+   188→
+   189→    if (c === '"') {
+   190→      inQuotes = true
+   191→    } else if (c === ',') {
+   192→      row.push(field)
+   193→      field = ''
+   194→    } else if (c === '\n' || c === '\r') {
+   195→      if (c === '\r' && text[i + 1] === '\n') i++
+   196→      row.push(field)
+   197→      rows.push(row)
+   198→      row = []
+   199→      field = ''
+   200→    } else {
+   201→      field += c
+   202→    }
+   203→  }
+   204→
+   205→  if (field !== '' || row.length > 0) {
+   206→    row.push(field)
+   207→    rows.push(row)
+   208→  }
+   209→
+   210→  return rows.filter((r) => r.some((c) => c.trim() !== ''))
+   211→}
+   212→
+   213→function downloadTemplate() {
+   214→  const blob = new Blob([TEMPLATE_CSV], { type: 'text/csv;charset=utf-8' })
+   215→  const url = URL.createObjectURL(blob)
+   216→  const a = document.createElement('a')
+   217→  a.href = url
+   218→  a.download = 'venom-leads-template.csv'
+   219→  document.body.appendChild(a)
+   220→  a.click()
+   221→  document.body.removeChild(a)
+   222→  URL.revokeObjectURL(url)
+   223→}
+   224→
+   225→/** Auto-match a CSV header to a target field by name (case-insensitive). */
+   226→function autoMatch(header: string): TargetField {
+   227→  const h = header.toLowerCase().trim()
+   228→  if (h === 'name' || h === 'fullname' || h === 'full name' || h === 'lead name') return 'fullName'
+   229→  if (h === 'email' || h === 'e-mail' || h === 'mail') return 'email'
+   230→  if (h === 'phone' || h === 'mobile' || h === 'tel' || h === 'phone number') return 'phone'
+   231→  if (h === 'source' || h === 'lead source') return 'source'
+   232→  if (h === 'score' || h === 'lead score') return 'score'
+   233→  if (h === 'value' || h === 'estimatedvalue' || h === 'estimated value' || h === 'deal value' || h === 'amount') return 'estimatedValue'
+   234→  return '__skip__'
+   235→}
+   236→
+   237→// ----------------------------------------------------------------
+   238→// Sortable lead card (board)
+   239→// ----------------------------------------------------------------
+   240→
+   241→function LeadCard({ lead }: { lead: Lead }) {
+   242→  const openDrawer = useAppStore((s) => s.openDrawer)
+   243→  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+   244→    id: lead.id,
+   245→    data: { type: 'lead', status: lead.status },
+   246→  })
+   247→
+   248→  const style: React.CSSProperties = {
+   249→    transform: CSS.Transform.toString(transform),
+   250→    transition,
+   251→  }
+   252→
+   253→  return (
+   254→    <div
+   255→      ref={setNodeRef}
+   256→      style={style}
+   257→      className={cn(
+   258→        'group bg-card border border-border/60 rounded-lg p-2.5 cursor-grab active:cursor-grabbing',
+   259→        'hover:border-primary/40 hover:shadow-soft transition-all',
+   260→        isDragging && 'opacity-60 ring-2 ring-primary/30 shadow-glow'
+   261→      )}
+   262→      onClick={() => openDrawer('lead', lead.id)}
+   263→      {...attributes}
+   264→      {...listeners}
+   265→    >
+   266→      <div className="flex items-start gap-2">
+   267→        <Avatar name={lead.fullName} url={undefined} size={26} />
+   268→        <div className="flex-1 min-w-0">
+   269→          <div className="flex items-center justify-between gap-1.5">
+   270→            <div className="text-[12.5px] font-medium truncate">{lead.fullName}</div>
+   271→            <GripVertical className="size-3 text-muted-foreground/30 group-hover:text-muted-foreground/70 transition-colors shrink-0" />
+   272→          </div>
+   273→          <div className="text-[10px] text-muted-foreground truncate">{lead.email || '—'}</div>
+   274→        </div>
+   275→      </div>
+   276→      <div className="mt-2 flex items-center justify-between gap-2">
+   277→        <ScoreBar score={lead.score} />
+   278→        {lead.estimatedValue ? (
+   279→          <span className="text-[10.5px] tabular-nums font-medium">{money(lead.estimatedValue)}</span>
+   280→        ) : (
+   281→          <span className="text-[10.5px] text-muted-foreground">—</span>
+   282→        )}
+   283→      </div>
+   284→      {(lead.company?.name || lead.source) && (
+   285→        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+   286→          {lead.company?.name && <span className="truncate">{lead.company.name}</span>}
+   287→          {lead.company?.name && lead.source && <span>·</span>}
+   288→          {lead.source && <span className="capitalize">{lead.source}</span>}
+   289→        </div>
+   290→      )}
+   291→    </div>
+   292→  )
+   293→}
+   294→
+   295→// ----------------------------------------------------------------
+   296→// Board column
+   297→// ----------------------------------------------------------------
+   298→
+   299→function BoardColumn({ status, leads }: { status: StatusMeta; leads: Lead[] }) {
+   300→  const columnId = `col-${status.value}`
+   301→  return (
+   302→    <div className="flex flex-col min-w-[240px] w-[240px] bg-muted/30 rounded-lg border border-border/50">
+   303→      <div className="px-2.5 py-2 flex items-center justify-between border-b border-border/50">
+   304→        <div className="flex items-center gap-1.5">
+   305→          <span className={cn('w-2 h-2 rounded-full', status.dot)} />
+   306→          <span className="text-[12px] font-semibold">{status.label}</span>
+   307→          <span className="text-[10px] tabular-nums text-muted-foreground bg-background px-1.5 py-0.5 rounded">
+   308→            {leads.length}
+   309→          </span>
+   310→        </div>
+   311→      </div>
+   312→      <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
+   313→        <div
+   314→          id={columnId}
+   315→          data-status={status.value}
+   316→          className="flex-1 p-1.5 space-y-1.5 overflow-y-auto scroll-area max-h-[calc(100vh-220px)] min-h-[100px]"
+   317→        >
+   318→          {leads.length === 0 && (
+   319→            <div className="h-16 rounded-md border border-dashed border-border/40 grid place-items-center text-[10px] text-muted-foreground">
+   320→              Drop here
+   321→            </div>
+   322→          )}
+   323→          {leads.map((l) => (
+   324→            <LeadCard key={l.id} lead={l} />
+   325→          ))}
+   326→        </div>
+   327→      </SortableContext>
+   328→    </div>
+   329→  )
+   330→}
+   331→
+   332→// ----------------------------------------------------------------
+   333→// Inline-editable status cell
+   334→// ----------------------------------------------------------------
+   335→
+   336→function StatusCell({ lead }: { lead: Lead }) {
+   337→  const { update } = useLeadMutations()
+   338→  const [open, setOpen] = React.useState(false)
+   339→  const meta = STATUS_MAP[lead.status] || LEAD_STATUSES[0]
+   340→
+   341→  return (
+   342→    <Popover open={open} onOpenChange={setOpen}>
+   343→      <PopoverTrigger asChild>
+   344→        <button
+   345→          onClick={(e) => e.stopPropagation()}
+   346→          className={cn(
+   347→            'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border border-transparent hover:border-border/60 transition-colors',
+   348→            meta.pill
+   349→          )}
+   350→        >
+   351→          <span className={cn('w-1.5 h-1.5 rounded-full', meta.dot)} />
+   352→          {meta.label}
+   353→          <ChevronDown className="size-3 opacity-50" />
+   354→        </button>
+   355→      </PopoverTrigger>
+   356→      <PopoverContent align="start" className="w-44 p-1" onClick={(e) => e.stopPropagation()}>
+   357→        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-2 py-1">
+   358→          Set status
+   359→        </div>
+   360→        {LEAD_STATUSES.map((s) => (
+   361→          <button
+   362→            key={s.value}
+   363→            onClick={() => {
+   364→              if (s.value !== lead.status) {
+   365→                update.mutate({ id: lead.id, status: s.value })
+   366→                toast.success(`${lead.fullName.split(' ')[0]} → ${s.label}`)
+   367→              }
+   368→              setOpen(false)
+   369→            }}
+   370→            className={cn(
+   371→              'flex items-center gap-2 w-full px-2 py-1.5 rounded text-[12px] hover:bg-accent transition-colors',
+   372→              s.value === lead.status && 'bg-accent'
+   373→            )}
+   374→          >
+   375→            <span className={cn('w-2 h-2 rounded-full', s.dot)} />
+   376→            <span className="flex-1 text-left">{s.label}</span>
+   377→            {s.value === lead.status && <Check className="size-3 text-primary" />}
+   378→          </button>
+   379→        ))}
+   380→      </PopoverContent>
+   381→    </Popover>
+   382→  )
+   383→}
+   384→
+   385→// ----------------------------------------------------------------
+   386→// Sortable column header
+   387→// ----------------------------------------------------------------
+   388→
+   389→type SortField = 'fullName' | 'status' | 'estimatedValue' | 'createdAt' | 'expectedClose' | 'score'
+   390→type SortDir = 'asc' | 'desc'
+   391→
+   392→function SortHeader({
+   393→  label,
+   394→  field,
+   395→  sortField,
+   396→  sortDir,
+   397→  onSort,
+   398→  className,
+   399→}: {
+   400→  label: string
+   401→  field: SortField
+   402→  sortField: SortField
+   403→  sortDir: SortDir
+   404→  onSort: (f: SortField) => void
+   405→  className?: string
+   406→}) {
+   407→  const active = sortField === field
+   408→  const Icon = active ? (sortDir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown
+   409→  return (
+   410→    <button
+   411→      onClick={() => onSort(field)}
+   412→      className={cn(
+   413→        'inline-flex items-center gap-1 hover:text-foreground transition-colors',
+   414→        active && 'text-foreground',
+   415→        className
+   416→      )}
+   417→    >
+   418→      <span>{label}</span>
+   419→      <Icon className={cn('size-3', active ? 'opacity-100' : 'opacity-40')} />
+   420→    </button>
+   421→  )
+   422→}
+   423→
+   424→// ----------------------------------------------------------------
+   425→// Actions cell
+   426→// ----------------------------------------------------------------
+   427→
+   428→function ActionsCell({ lead }: { lead: Lead }) {
+   429→  const openDrawer = useAppStore((s) => s.openDrawer)
+   430→  const { remove } = useLeadMutations()
+   431→
+   432→  return (
+   433→    <DropdownMenu>
+   434→      <DropdownMenuTrigger asChild>
+   435→        <Button
+   436→          variant="ghost"
+   437→          size="icon"
+   438→          className="size-6 -mr-1"
+   439→          onClick={(e) => e.stopPropagation()}
+   440→        >
+   441→          <MoreHorizontal className="size-4" />
+   442→        </Button>
+   443→      </DropdownMenuTrigger>
+   444→      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+   445→        <DropdownMenuItem onClick={() => openDrawer('lead', lead.id)}>
+   446→          <Pencil className="size-3.5" /> Edit
+   447→        </DropdownMenuItem>
+   448→        <DropdownMenuSeparator />
+   449→        <DropdownMenuItem
+   450→          variant="destructive"
+   451→          onClick={() => {
+   452→            remove.mutate(lead.id)
+   453→          }}
+   454→        >
+   455→          <Trash2 className="size-3.5" /> Delete
+   456→        </DropdownMenuItem>
+   457→      </DropdownMenuContent>
+   458→    </DropdownMenu>
+   459→  )
+   460→}
+   461→
+   462→// ----------------------------------------------------------------
+   463→// Bulk action bar
+   464→// ----------------------------------------------------------------
+   465→
+   466→function BulkToolbar({
+   467→  selectedCount,
+   468→  onClear,
+   469→  onAssign,
+   470→  onDelete,
+   471→}: {
+   472→  selectedCount: number
+   473→  onClear: () => void
+   474→  onAssign: (memberId: string) => void
+   475→  onDelete: () => void
+   476→}) {
+   477→  const { data: membersData } = useSettings('members')
+   478→  const members = (membersData as Membership[] | undefined) || []
+   479→  const [assignOpen, setAssignOpen] = React.useState(false)
+   480→
+   481→  return (
+   482→    <motion.div
+   483→      initial={{ opacity: 0, y: -6 }}
+   484→      animate={{ opacity: 1, y: 0 }}
+   485→      exit={{ opacity: 0, y: -6 }}
+   486→      transition={{ duration: 0.15 }}
+   487→      className="flex items-center gap-2 px-3 h-10 mb-2 rounded-lg bg-primary/8 border border-primary/20 shadow-soft"
+   488→    >
+   489→      <span className="text-[12px] font-medium tabular-nums">
+   490→        {selectedCount} selected
+   491→      </span>
+   492→      <div className="h-4 w-px bg-border mx-0.5" />
+   493→
+   494→      <Popover open={assignOpen} onOpenChange={setAssignOpen}>
+   495→        <PopoverTrigger asChild>
+   496→          <Button size="sm" variant="ghost" className="h-7 text-[12px] gap-1.5">
+   497→            <UsersIcon className="size-3.5" /> Assign
+   498→          </Button>
+   499→        </PopoverTrigger>
+   500→        <PopoverContent align="start" className="w-56 p-1">
+   501→          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-2 py-1">
+   502→            Assign {selectedCount} lead{selectedCount > 1 ? 's' : ''} to
+   503→          </div>
+   504→          <div className="max-h-60 overflow-y-auto scroll-area">
+   505→            {members.length === 0 && (
+   506→              <div className="px-2 py-3 text-[11px] text-muted-foreground text-center">No members</div>
+   507→            )}
+   508→            {members.map((m) => (
+   509→              <button
+   510→                key={m.id}
+   511→                onClick={() => {
+   512→                  onAssign(m.userId)
+   513→                  setAssignOpen(false)
+   514→                }}
+   515→                className="flex items-center gap-2 w-full px-2 py-1.5 rounded text-[12px] hover:bg-accent transition-colors"
+   516→              >
+   517→                <Avatar name={m.user?.name || '?'} url={m.user?.avatarUrl} size={20} />
+   518→                <span className="truncate">{m.user?.name || 'Unknown'}</span>
+   519→              </button>
+   520→            ))}
+   521→          </div>
+   522→        </PopoverContent>
+   523→      </Popover>
+   524→
+   525→      <Button
+   526→        size="sm"
+   527→        variant="ghost"
+   528→        className="h-7 text-[12px] gap-1.5"
+   529→        onClick={() => toast.info('Bulk tagging — select a tag from the dropdown')}
+   530→      >
+   531→        <TagIcon className="size-3.5" /> Tag
+   532→      </Button>
+   533→      <Button
+   534→        size="sm"
+   535→        variant="ghost"
+   536→        className="h-7 text-[12px] gap-1.5 text-destructive hover:text-destructive"
+   537→        onClick={onDelete}
+   538→      >
+   539→        <Trash2 className="size-3.5" /> Delete
+   540→      </Button>
+   541→
+   542→      <div className="flex-1" />
+   543→      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onClear} aria-label="Clear selection">
+   544→        <X className="size-3.5" />
+   545→      </Button>
+   546→    </motion.div>
+   547→  )
+   548→}
+   549→
+   550→// ----------------------------------------------------------------
+   551→// Table view (venom-table)
+   552→// ----------------------------------------------------------------
+   553→
+   554→function LeadsTable({ leads }: { leads: Lead[] }) {
+   555→  const openDrawer = useAppStore((s) => s.openDrawer)
+   556→  const { update, remove } = useLeadMutations()
+   557→  const [sortField, setSortField] = React.useState<SortField>('createdAt')
+   558→  const [sortDir, setSortDir] = React.useState<SortDir>('desc')
+   559→  const [selected, setSelected] = React.useState<Set<string>>(new Set())
+   560→
+   561→  const toggleSort = (field: SortField) => {
+   562→    if (sortField === field) {
+   563→      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+   564→    } else {
+   565→      setSortField(field)
+   566→      setSortDir('asc')
+   567→    }
+   568→  }
+   569→
+   570→  const sorted = React.useMemo(() => {
+   571→    const arr = [...leads]
+   572→    arr.sort((a, b) => {
+   573→      let av: string | number
+   574→      let bv: string | number
+   575→      switch (sortField) {
+   576→        case 'fullName':
+   577→          av = a.fullName.toLowerCase(); bv = b.fullName.toLowerCase(); break
+   578→        case 'status':
+   579→          av = a.status; bv = b.status; break
+   580→        case 'estimatedValue':
+   581→          av = a.estimatedValue || 0; bv = b.estimatedValue || 0; break
+   582→        case 'createdAt':
+   583→          av = new Date(a.createdAt).getTime(); bv = new Date(b.createdAt).getTime(); break
+   584→        case 'expectedClose':
+   585→          av = a.expectedClose ? new Date(a.expectedClose).getTime() : Infinity
+   586→          bv = b.expectedClose ? new Date(b.expectedClose).getTime() : Infinity
+   587→          break
+   588→        case 'score':
+   589→          av = a.score; bv = b.score; break
+   590→        default:
+   591→          return 0
+   592→      }
+   593→      if (av < bv) return sortDir === 'asc' ? -1 : 1
+   594→      if (av > bv) return sortDir === 'asc' ? 1 : -1
+   595→      return 0
+   596→    })
+   597→    return arr
+   598→  }, [leads, sortField, sortDir])
+   599→
+   600→  const allSelected = sorted.length > 0 && sorted.every((l) => selected.has(l.id))
+   601→  const someSelected = sorted.some((l) => selected.has(l.id)) && !allSelected
+   602→  const selectedCount = selected.size
+   603→
+   604→  const toggleAll = () => {
+   605→    if (allSelected) {
+   606→      setSelected(new Set())
+   607→    } else {
+   608→      setSelected(new Set(sorted.map((l) => l.id)))
+   609→    }
+   610→  }
+   611→
+   612→  const toggleRow = (id: string) => {
+   613→    setSelected((prev) => {
+   614→      const next = new Set(prev)
+   615→      if (next.has(id)) next.delete(id)
+   616→      else next.add(id)
+   617→      return next
+   618→    })
+   619→  }
+   620→
+   621→  const handleBulkDelete = () => {
+   622→    const ids = Array.from(selected)
+   623→    ids.forEach((id) => remove.mutate(id))
+   624→    toast.success(`${ids.length} lead${ids.length > 1 ? 's' : ''} deleted`)
+   625→    setSelected(new Set())
+   626→  }
+   627→
+   628→  const handleBulkAssign = (memberId: string) => {
+   629→    const ids = Array.from(selected)
+   630→    ids.forEach((id) => update.mutate({ id, ownerId: memberId }))
+   631→    toast.success(`Assigned ${ids.length} lead${ids.length > 1 ? 's' : ''}`)
+   632→    setSelected(new Set())
+   633→  }
+   634→
+   635→  return (
+   636→    <div>
+   637→      <AnimatePresence>
+   638→        {selectedCount > 0 && (
+   639→          <BulkToolbar
+   640→            selectedCount={selectedCount}
+   641→            onClear={() => setSelected(new Set())}
+   642→            onAssign={handleBulkAssign}
+   643→            onDelete={handleBulkDelete}
+   644→          />
+   645→        )}
+   646→      </AnimatePresence>
+   647→
+   648→      <div className="rounded-lg border border-border/60 bg-card overflow-hidden shadow-soft">
+   649→        <div className="overflow-x-auto scroll-area max-h-[calc(100vh-200px)] overflow-y-auto">
+   650→          <table className="venom-table" style={{ tableLayout: 'fixed' }}>
+   651→            <colgroup>
+   652→              <col style={{ width: 32 }} />
+   653→              <col style={{ width: 180 }} />
+   654→              <col style={{ width: 120 }} />
+   655→              <col style={{ width: 140 }} />
+   656→              <col style={{ width: 130 }} />
+   657→              <col style={{ width: 100 }} />
+   658→              <col style={{ width: 90 }} />
+   659→              <col style={{ width: 110 }} />
+   660→              <col style={{ width: 100 }} />
+   661→              <col style={{ width: 80 }} />
+   662→              <col style={{ width: 90 }} />
+   663→              <col style={{ width: 80 }} />
+   664→              <col style={{ width: 40 }} />
+   665→            </colgroup>
+   666→            <thead>
+   667→              <tr>
+   668→                <th className="!py-1.5 !px-2">
+   669→                  <Checkbox
+   670→                    checked={allSelected || (someSelected && 'indeterminate')}
+   671→                    onCheckedChange={toggleAll}
+   672→                    aria-label="Select all"
+   673→                  />
+   674→                </th>
+   675→                <th><SortHeader label="Name" field="fullName" sortField={sortField} sortDir={sortDir} onSort={toggleSort} /></th>
+   676→                <th>Company</th>
+   677→                <th>Phone</th>
+   678→                <th>Status</th>
+   679→                <th>Source</th>
+   680→                <th>Owner</th>
+   681→                <th><SortHeader label="Value" field="estimatedValue" sortField={sortField} sortDir={sortDir} onSort={toggleSort} /></th>
+   682→                <th><SortHeader label="Expected" field="expectedClose" sortField={sortField} sortDir={sortDir} onSort={toggleSort} /></th>
+   683→                <th><SortHeader label="Score" field="score" sortField={sortField} sortDir={sortDir} onSort={toggleSort} /></th>
+   684→                <th>Last Contact</th>
+   685→                <th><SortHeader label="Created" field="createdAt" sortField={sortField} sortDir={sortDir} onSort={toggleSort} /></th>
+   686→                <th><span className="sr-only">Actions</span></th>
+   687→              </tr>
+   688→            </thead>
+   689→            <tbody>
+   690→              {sorted.map((lead) => {
+   691→                const isSelected = selected.has(lead.id)
+   692→                const isPastDue = lead.expectedClose && new Date(lead.expectedClose) < new Date()
+   693→                return (
+   694→                  <tr
+   695→                    key={lead.id}
+   696→                    className={cn(isSelected && 'selected')}
+   697→                    onClick={() => openDrawer('lead', lead.id)}
+   698→                  >
+   699→                    <td className="!py-1.5 !px-2" onClick={(e) => e.stopPropagation()}>
+   700→                      <Checkbox
+   701→                        checked={isSelected}
+   702→                        onCheckedChange={() => toggleRow(lead.id)}
+   703→                        aria-label={`Select ${lead.fullName}`}
+   704→                      />
+   705→                    </td>
+   706→                    <td>
+   707→                      <div className="flex items-center gap-2 min-w-0">
+   708→                        <Avatar name={lead.fullName} url={undefined} size={24} />
+   709→                        <div className="min-w-0">
+   710→                          <div className="text-[12.5px] font-medium truncate">{lead.fullName}</div>
+   711→                          <div className="text-[10px] text-muted-foreground truncate">{lead.email || '—'}</div>
+   712→                        </div>
+   713→                      </div>
+   714→                    </td>
+   715→                    <td>
+   716→                      {lead.company?.name ? (
+   717→                        <span className="text-[12px] truncate inline-block max-w-[110px] align-middle">{lead.company.name}</span>
+   718→                      ) : (
+   719→                        <span className="text-[12px] text-muted-foreground">—</span>
+   720→                      )}
+   721→                    </td>
+   722→                    <td>
+   723→                      {lead.phone ? (
+   724→                        <span className="font-mono text-[11.5px] tabular-nums">{lead.phone}</span>
+   725→                      ) : (
+   726→                        <span className="text-[12px] text-muted-foreground">—</span>
+   727→                      )}
+   728→                    </td>
+   729→                    <td onClick={(e) => e.stopPropagation()}>
+   730→                      <StatusCell lead={lead} />
+   731→                    </td>
+   732→                    <td>
+   733→                      {lead.source ? (
+   734→                        <span className="text-[12px] text-muted-foreground capitalize">{lead.source}</span>
+   735→                      ) : (
+   736→                        <span className="text-[12px] text-muted-foreground">—</span>
+   737→                      )}
+   738→                    </td>
+   739→                    <td>
+   740→                      {lead.owner ? (
+   741→                        <div className="flex items-center gap-1.5 min-w-0">
+   742→                          <Avatar name={lead.owner.name} url={lead.owner.avatarUrl} size={20} />
+   743→                          <span className="text-[12px] truncate">{lead.owner.name.split(' ')[0]}</span>
+   744→                        </div>
+   745→                      ) : (
+   746→                        <span className="text-[11px] text-muted-foreground italic">Unassigned</span>
+   747→                      )}
+   748→                    </td>
+   749→                    <td>
+   750→                      {lead.estimatedValue != null ? (
+   751→                        <span className="text-[12px] tabular-nums font-medium">{money(lead.estimatedValue)}</span>
+   752→                      ) : (
+   753→                        <span className="text-[12px] text-muted-foreground">—</span>
+   754→                      )}
+   755→                    </td>
+   756→                    <td>
+   757→                      {lead.expectedClose ? (
+   758→                        <span className={cn('text-[11px]', isPastDue && 'text-destructive font-medium')}>
+   759→                          {relTime(lead.expectedClose)}
+   760→                        </span>
+   761→                      ) : (
+   762→                        <span className="text-[12px] text-muted-foreground">—</span>
+   763→                      )}
+   764→                    </td>
+   765→                    <td>
+   766→                      <ScoreBar score={lead.score} />
+   767→                    </td>
+   768→                    <td>
+   769→                      {lead.lastActivityAt ? (
+   770→                        <span className="text-[11px] text-muted-foreground">{relTime(lead.lastActivityAt)}</span>
+   771→                      ) : (
+   772→                        <span className="text-[11px] text-muted-foreground italic">never</span>
+   773→                      )}
+   774→                    </td>
+   775→                    <td>
+   776→                      <span className="text-[11px] text-muted-foreground">{relTime(lead.createdAt)}</span>
+   777→                    </td>
+   778→                    <td onClick={(e) => e.stopPropagation()}>
+   779→                      <ActionsCell lead={lead} />
+   780→                    </td>
+   781→                  </tr>
+   782→                )
+   783→              })}
+   784→            </tbody>
+   785→          </table>
+   786→        </div>
+   787→      </div>
+   788→    </div>
+   789→  )
+   790→}
+   791→
+   792→// ----------------------------------------------------------------
+   793→// Board view (Kanban)
+   794→// ----------------------------------------------------------------
+   795→
+   796→function LeadsBoard({ leads }: { leads: Lead[] }) {
+   797→  const { update } = useLeadMutations()
+   798→  const sensors = useSensors(
+   799→    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+   800→  )
+   801→
+   802→  const grouped = React.useMemo(() => {
+   803→    const map = {} as Record<LeadStatus, Lead[]>
+   804→    LEAD_STATUSES.forEach((s) => { map[s.value] = [] })
+   805→    leads.forEach((l) => {
+   806→      if (map[l.status]) map[l.status].push(l)
+   807→    })
+   808→    return map
+   809→  }, [leads])
+   810→
+   811→  const handleDragEnd = (e: DragEndEvent) => {
+   812→    const { active, over } = e
+   813→    if (!over) return
+   814→    const leadId = String(active.id)
+   815→    const lead = leads.find((l) => l.id === leadId)
+   816→    if (!lead) return
+   817→
+   818→    let targetStatus: LeadStatus | undefined
+   819→
+   820→    // Dropped over a column container
+   821→    const overData = over.data.current as { status?: LeadStatus; type?: string } | undefined
+   822→    if (overData?.status) {
+   823→      targetStatus = overData.status
+   824→    }
+   825→
+   826→    // Dropped over a lead card — find which column that lead belongs to
+   827→    if (!targetStatus) {
+   828→      const overLead = leads.find((l) => l.id === String(over.id))
+   829→      if (overLead) targetStatus = overLead.status
+   830→    }
+   831→
+   832→    // Dropped over a column element by id
+   833→    if (!targetStatus && typeof over.id === 'string' && over.id.startsWith('col-')) {
+   834→      targetStatus = over.id.slice(4) as LeadStatus
+   835→    }
+   836→
+   837→    if (!targetStatus || targetStatus === lead.status) return
+   838→    update.mutate({ id: leadId, status: targetStatus })
+   839→    toast.success(`${lead.fullName.split(' ')[0]} → ${STATUS_MAP[targetStatus].label}`)
+   840→  }
+   841→
+   842→  return (
+   843→    <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
+   844→      <div className="flex gap-2.5 overflow-x-auto scroll-area pb-2">
+   845→        {LEAD_STATUSES.map((s) => (
+   846→          <BoardColumn key={s.value} status={s} leads={grouped[s.value] || []} />
+   847→        ))}
+   848→      </div>
+   849→    </DndContext>
+   850→  )
+   851→}
+   852→
+   853→// ----------------------------------------------------------------
+   854→// Loading skeleton
+   855→// ----------------------------------------------------------------
+   856→
+   857→function LeadsSkeleton() {
+   858→  return (
+   859→    <div className="rounded-lg border border-border/60 bg-card overflow-hidden shadow-soft">
+   860→      <div className="space-y-0">
+   861→        {Array.from({ length: 10 }).map((_, i) => (
+   862→          <div key={i} className="flex items-center gap-2.5 px-3 h-9 border-b border-border/40">
+   863→            <Skeleton className="size-4 rounded" />
+   864→            <Skeleton className="size-6 rounded-full" />
+   865→            <div className="flex-1 space-y-1">
+   866→              <Skeleton className="h-2.5 w-32 rounded" />
+   867→              <Skeleton className="h-2 w-44 rounded" />
+   868→            </div>
+   869→            <Skeleton className="h-3 w-16 rounded" />
+   870→            <Skeleton className="h-4 w-14 rounded" />
+   871→            <Skeleton className="h-3 w-20 rounded" />
+   872→            <Skeleton className="size-5 rounded-full" />
+   873→            <Skeleton className="h-3 w-16 rounded" />
+   874→            <Skeleton className="h-2 w-12 rounded" />
+   875→          </div>
+   876→        ))}
+   877→      </div>
+   878→    </div>
+   879→  )
+   880→}
+   881→
+   882→// ----------------------------------------------------------------
+   883→// Import CSV dialog (4-step wizard)
+   884→// ----------------------------------------------------------------
+   885→
+   886→type ImportStep = 'upload' | 'map' | 'review' | 'importing' | 'done'
+   887→
+   888→function ImportCsvDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+   889→  const { create } = useLeadMutations()
+   890→  const { startSequence } = useThinkingTask()
+   891→  const tasks = useThinkingStore((s) => s.tasks)
+   892→  const thinkingLabel = tasks[tasks.length - 1]?.label || 'Working…'
+   893→  const { data: membersData } = useSettings('members')
+   894→  const members = (membersData as Membership[] | undefined) || []
+   895→  const user = useAppStore((s) => s.user)
+   896→  const openDrawer = useAppStore((s) => s.openDrawer)
+   897→
+   898→  const [step, setStep] = React.useState<ImportStep>('upload')
+   899→  const [headers, setHeaders] = React.useState<string[]>([])
+   900→  const [dataRows, setDataRows] = React.useState<string[][]>([])
+   901→  const [mapping, setMapping] = React.useState<Record<number, TargetField>>({})
+   902→  const [ownerId, setOwnerId] = React.useState<string>('')
+   903→  const [dupMode, setDupMode] = React.useState<'skip' | 'update'>('skip')
+   904→  const [importedCount, setImportedCount] = React.useState(0)
+   905→  const [totalCount, setTotalCount] = React.useState(0)
+   906→  const [pasteMode, setPasteMode] = React.useState(false)
+   907→  const [pasteText, setPasteText] = React.useState('')
+   908→  const [dragOver, setDragOver] = React.useState(false)
+   909→
+   910→  // Reset when dialog closes
+   911→  const resetWizard = React.useCallback(() => {
+   912→    setStep('upload')
+   913→    setHeaders([])
+   914→    setDataRows([])
+   915→    setMapping({})
+   916→    setOwnerId(user?.id || '')
+   917→    setDupMode('skip')
+   918→    setImportedCount(0)
+   919→    setTotalCount(0)
+   920→    setPasteMode(false)
+   921→    setPasteText('')
+   922→    setDragOver(false)
+   923→  }, [user?.id])
+   924→
+   925→  React.useEffect(() => {
+   926→    if (open) resetWizard()
+   927→  }, [open, resetWizard])
+   928→
+   929→  const ingestCSV = (text: string) => {
+   930→    const rows = parseCSV(text)
+   931→    if (rows.length < 2) {
+   932→      toast.error('CSV must have a header row and at least one data row')
+   933→      return
+   934→    }
+   935→    const hdrs = rows[0].map((h, i) => h.trim() || `Column ${i + 1}`)
+   936→    const body = rows.slice(1)
+   937→    setHeaders(hdrs)
+   938→    setDataRows(body)
+   939→    // Auto-match headers to target fields
+   940→    const auto: Record<number, TargetField> = {}
+   941→    hdrs.forEach((h, i) => { auto[i] = autoMatch(h) })
+   942→    setMapping(auto)
+   943→    setStep('map')
+   944→  }
+   945→
+   946→  const handleFile = (file: File) => {
+   947→    const reader = new FileReader()
+   948→    reader.onload = () => ingestCSV(String(reader.result))
+   949→    reader.onerror = () => toast.error('Could not read file')
+   950→    reader.readAsText(file)
+   951→  }
+   952→
+   953→  const mappedRows = React.useMemo(() => {
+   954→    return dataRows.map((row) => {
+   955→      const obj: Partial<Record<TargetField, string>> = {}
+   956→      headers.forEach((_, i) => {
+   957→        const target = mapping[i]
+   958→        if (target && target !== '__skip__' && row[i] !== undefined) {
+   959→          obj[target] = row[i].trim()
+   960→        }
+   961→      })
+   962→      return obj
+   963→    })
+   964→  }, [dataRows, headers, mapping])
+   965→
+   966→  const validRows = React.useMemo(() => {
+   967→    return mappedRows.filter((r) => r.fullName && r.fullName.trim().length > 0)
+   968→  }, [mappedRows])
+   969→
+   970→  const handleStartImport = async () => {
+   971→    setStep('importing')
+   972→    setTotalCount(validRows.length)
+   973→    setImportedCount(0)
+   974→
+   975→    const labels = [
+   976→      'Reading CSV…',
+   977→      'Mapping columns…',
+   978→      'Validating emails…',
+   979→      'Detecting duplicates…',
+   980→      `Importing ${validRows.length} lead${validRows.length > 1 ? 's' : ''}…`,
+   981→      'Finalizing import…',
+   982→    ]
+   983→
+   984→    const sequencePromise = startSequence(labels, { duration: 600 })
+   985→
+   986→    let count = 0
+   987→    for (const row of validRows) {
+   988→      try {
+   989→        await create.mutateAsync({
+   990→          fullName: row.fullName || '',
+   991→          email: row.email || null,
+   992→          phone: row.phone || null,
+   993→          source: row.source || 'website',
+   994→          score: row.score ? Math.max(0, Math.min(100, parseInt(row.score, 10) || 0)) : 0,
+   995→          estimatedValue: row.estimatedValue ? Number(row.estimatedValue.replace(/[^0-9.-]/g, '')) || null : null,
+   996→          status: 'new',
+   997→          ownerId: ownerId || null,
+   998→        })
+   999→        count++
+  1000→        setImportedCount(count)
+  1001→      } catch {
+  1002→        // skip individual failures
+  1003→      }
+  1004→    }
+  1005→
+  1006→    await sequencePromise
+  1007→    toast.success(`Imported ${count} lead${count !== 1 ? 's' : ''}`)
+  1008→    setStep('done')
+  1009→  }
+  1010→
+  1011→  const stepOrder: ImportStep[] = ['upload', 'map', 'review', 'importing', 'done']
+  1012→  const stepIndex = stepOrder.indexOf(step)
+  1013→
+  1014→  return (
+  1015→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1016→      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto scroll-area">
+  1017→        <DialogHeader>
+  1018→          <DialogTitle className="flex items-center gap-2 text-[15px]">
+  1019→            <FileSpreadsheet className="size-4 text-primary" />
+  1020→            Import Leads
+  1021→          </DialogTitle>
+  1022→          <DialogDescription className="text-[12px]">
+  1023→            {step !== 'done' && step !== 'importing' && (
+  1024→              <>Step {Math.min(stepIndex + 1, 3)} of 3 — {step === 'upload' ? 'Upload your CSV file' : step === 'map' ? 'Map columns to lead fields' : 'Review and confirm'}</>
+  1025→            )}
+  1026→            {step === 'importing' && <>Importing your leads…</>}
+  1027→            {step === 'done' && <>Import complete</>}
+  1028→          </DialogDescription>
+  1029→        </DialogHeader>
+  1030→
+  1031→        {/* Progress dots */}
+  1032→        {step !== 'importing' && step !== 'done' && (
+  1033→          <div className="flex items-center gap-1.5 mb-4">
+  1034→            {['upload', 'map', 'review'].map((s, i) => (
+  1035→              <div
+  1036→                key={s}
+  1037→                className={cn(
+  1038→                  'h-1 flex-1 rounded-full transition-colors',
+  1039→                  i <= stepIndex ? 'bg-primary' : 'bg-muted'
+  1040→                )}
+  1041→              />
+  1042→            ))}
+  1043→          </div>
+  1044→        )}
+  1045→
+  1046→        <AnimatePresence mode="wait">
+  1047→          {/* Step 1: Upload */}
+  1048→          {step === 'upload' && (
+  1049→            <motion.div
+  1050→              key="upload"
+  1051→              initial={{ opacity: 0, y: 6 }}
+  1052→              animate={{ opacity: 1, y: 0 }}
+  1053→              exit={{ opacity: 0, y: -6 }}
+  1054→              transition={{ duration: 0.18 }}
+  1055→              className="space-y-3"
+  1056→            >
+  1057→              {!pasteMode ? (
+  1058→                <div
+  1059→                  onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+  1060→                  onDragLeave={() => setDragOver(false)}
+  1061→                  onDrop={(e) => {
+  1062→                    e.preventDefault()
+  1063→                    setDragOver(false)
+  1064→                    const file = e.dataTransfer.files?.[0]
+  1065→                    if (file) handleFile(file)
+  1066→                  }}
+  1067→                  onClick={() => document.getElementById('csv-file-input')?.click()}
+  1068→                  className={cn(
+  1069→                    'border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors',
+  1070→                    dragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40 hover:bg-accent/40'
+  1071→                  )}
+  1072→                >
+  1073→                  <Upload className="size-8 mx-auto text-muted-foreground mb-2.5" />
+  1074→                  <div className="text-[13px] font-medium">Drag &amp; drop CSV file here</div>
+  1075→                  <div className="text-[11px] text-muted-foreground mt-1">or click to browse</div>
+  1076→                  <input
+  1077→                    id="csv-file-input"
+  1078→                    type="file"
+  1079→                    accept=".csv,text/csv"
+  1080→                    className="hidden"
+  1081→                    onChange={(e) => {
+  1082→                      const file = e.target.files?.[0]
+  1083→                      if (file) handleFile(file)
+  1084→                      e.target.value = ''
+  1085→                    }}
+  1086→                  />
+  1087→                </div>
+  1088→              ) : (
+  1089→                <div className="space-y-2">
+  1090→                  <Textarea
+  1091→                    placeholder={'fullName,email,phone,source,score,estimatedValue\nAarav Sharma,aarav@acme.in,+919876543210,website,82,450000'}
+  1092→                    value={pasteText}
+  1093→                    onChange={(e) => setPasteText(e.target.value)}
+  1094→                    className="min-h-[220px] font-mono text-[11px] resize-y"
+  1095→                  />
+  1096→                  <Button
+  1097→                    className="w-full"
+  1098→                    disabled={!pasteText.trim()}
+  1099→                    onClick={() => ingestCSV(pasteText)}
+  1100→                  >
+  1101→                    Continue with pasted CSV
+  1102→                  </Button>
+  1103→                </div>
+  1104→              )}
+  1105→
+  1106→              <div className="flex items-center justify-between text-[11px] pt-1">
+  1107→                <button
+  1108→                  className="inline-flex items-center gap-1 text-primary hover:underline"
+  1109→                  onClick={() => setPasteMode((m) => !m)}
+  1110→                >
+  1111→                  {pasteMode ? <><Upload className="size-3" /> Upload file instead</> : <><ClipboardPaste className="size-3" /> Paste CSV instead</>}
+  1112→                </button>
+  1113→                <button
+  1114→                  className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline"
+  1115→                  onClick={downloadTemplate}
+  1116→                >
+  1117→                  <Download className="size-3" /> Download template
+  1118→                </button>
+  1119→              </div>
+  1120→            </motion.div>
+  1121→          )}
+  1122→
+  1123→          {/* Step 2: Map columns */}
+  1124→          {step === 'map' && (
+  1125→            <motion.div
+  1126→              key="map"
+  1127→              initial={{ opacity: 0, y: 6 }}
+  1128→              animate={{ opacity: 1, y: 0 }}
+  1129→              exit={{ opacity: 0, y: -6 }}
+  1130→              transition={{ duration: 0.18 }}
+  1131→              className="space-y-3"
+  1132→            >
+  1133→              <div className="flex items-center gap-2 text-[12px]">
+  1134→                <Badge variant="secondary" className="text-[10px]">Entity: Leads</Badge>
+  1135→                <span className="text-muted-foreground">{dataRows.length} rows detected</span>
+  1136→              </div>
+  1137→
+  1138→              {/* Owner select */}
+  1139→              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/40 border border-border/60">
+  1140→                <Label className="text-[12px] font-medium shrink-0">Default owner:</Label>
+  1141→                <Select value={ownerId} onValueChange={setOwnerId}>
+  1142→                  <SelectTrigger size="sm" className="h-8 flex-1 text-[12px]">
+  1143→                    <SelectValue placeholder="Unassigned" />
+  1144→                  </SelectTrigger>
+  1145→                  <SelectContent>
+  1146→                    <SelectItem value="">Unassigned</SelectItem>
+  1147→                    {members.map((m) => (
+  1148→                      <SelectItem key={m.id} value={m.userId}>
+  1149→                        {m.user?.name || 'Unknown'} {m.userId === user?.id && '(me)'}
+  1150→                      </SelectItem>
+  1151→                    ))}
+  1152→                  </SelectContent>
+  1153→                </Select>
+  1154→              </div>
+  1155→
+  1156→              <div className="rounded-md border border-border/60 overflow-hidden">
+  1157→                <div className="grid grid-cols-2 gap-px bg-border/60 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+  1158→                  <div className="bg-card px-2.5 py-1.5">CSV header</div>
+  1159→                  <div className="bg-card px-2.5 py-1.5">Lead field</div>
+  1160→                </div>
+  1161→                <div className="max-h-[260px] overflow-y-auto scroll-area">
+  1162→                  {headers.map((h, i) => (
+  1163→                    <div key={i} className="grid grid-cols-2 gap-px bg-border/60">
+  1164→                      <div className="bg-card px-2.5 py-1.5 text-[12px] font-mono truncate">{h}</div>
+  1165→                      <div className="bg-card px-1.5 py-1">
+  1166→                        <Select
+  1167→                          value={mapping[i] || '__skip__'}
+  1168→                          onValueChange={(v) => setMapping((m) => ({ ...m, [i]: v as TargetField }))}
+  1169→                        >
+  1170→                          <SelectTrigger size="sm" className="h-7 text-[11px] border-0 shadow-none">
+  1171→                            <SelectValue />
+  1172→                          </SelectTrigger>
+  1173→                          <SelectContent>
+  1174→                            <SelectItem value="__skip__">Do not import</SelectItem>
+  1175→                            <SelectItem value="fullName">fullName *</SelectItem>
+  1176→                            <SelectItem value="email">email</SelectItem>
+  1177→                            <SelectItem value="phone">phone</SelectItem>
+  1178→                            <SelectItem value="source">source</SelectItem>
+  1179→                            <SelectItem value="score">score</SelectItem>
+  1180→                            <SelectItem value="estimatedValue">estimatedValue</SelectItem>
+  1181→                          </SelectContent>
+  1182→                        </Select>
+  1183→                      </div>
+  1184→                    </div>
+  1185→                  ))}
+  1186→                </div>
+  1187→              </div>
+  1188→
+  1189→              <div className="flex items-center justify-between pt-1">
+  1190→                <Button variant="ghost" size="sm" onClick={() => setStep('upload')}>
+  1191→                  Back
+  1192→                </Button>
+  1193→                <Button
+  1194→                  size="sm"
+  1195→                  disabled={!validRows.length}
+  1196→                  onClick={() => setStep('review')}
+  1197→                >
+  1198→                  Continue ({validRows.length} valid)
+  1199→                </Button>
+  1200→              </div>
+  1201→            </motion.div>
+  1202→          )}
+  1203→
+  1204→          {/* Step 3: Review */}
+  1205→          {step === 'review' && (
+  1206→            <motion.div
+  1207→              key="review"
+  1208→              initial={{ opacity: 0, y: 6 }}
+  1209→              animate={{ opacity: 1, y: 0 }}
+  1210→              exit={{ opacity: 0, y: -6 }}
+  1211→              transition={{ duration: 0.18 }}
+  1212→              className="space-y-4"
+  1213→            >
+  1214→              <div className="rounded-md border border-border/60 p-3 bg-muted/30">
+  1215→                <div className="text-[13px] font-medium">Ready to import {validRows.length} lead{validRows.length !== 1 ? 's' : ''}</div>
+  1216→                <div className="text-[11px] text-muted-foreground mt-1">
+  1217→                  Owner: {ownerId ? members.find((m) => m.userId === ownerId)?.user?.name || 'Selected' : 'Unassigned'} · Status: New
+  1218→                </div>
+  1219→              </div>
+  1220→
+  1221→              <div className="space-y-2">
+  1222→                <Label className="text-[12px] font-medium">Duplicate handling</Label>
+  1223→                <RadioGroup value={dupMode} onValueChange={(v) => setDupMode(v as 'skip' | 'update')} className="gap-2">
+  1224→                  <label htmlFor="dup-skip" className="flex items-start gap-2.5 p-2.5 rounded-md border border-border/60 hover:bg-accent/40 cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+  1225→                    <RadioGroupItem value="skip" id="dup-skip" className="mt-0.5" />
+  1226→                    <div>
+  1227→                      <div className="text-[12px] font-medium">Skip duplicates</div>
+  1228→                      <div className="text-[11px] text-muted-foreground">Leaves existing leads unchanged</div>
+  1229→                    </div>
+  1230→                  </label>
+  1231→                  <label htmlFor="dup-update" className="flex items-start gap-2.5 p-2.5 rounded-md border border-border/60 hover:bg-accent/40 cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+  1232→                    <RadioGroupItem value="update" id="dup-update" className="mt-0.5" />
+  1233→                    <div>
+  1234→                      <div className="text-[12px] font-medium">Update existing</div>
+  1235→                      <div className="text-[11px] text-muted-foreground">Overwrites matching leads by email</div>
+  1236→                    </div>
+  1237→                  </label>
+  1238→                </RadioGroup>
+  1239→                <p className="text-[10.5px] text-muted-foreground italic">
+  1240→                  Note: Duplicate detection runs against existing leads in this workspace.
+  1241→                </p>
+  1242→              </div>
+  1243→
+  1244→              <div className="flex items-center justify-between pt-1">
+  1245→                <Button variant="ghost" size="sm" onClick={() => setStep('map')}>
+  1246→                  Back
+  1247→                </Button>
+  1248→                <Button size="sm" onClick={handleStartImport}>
+  1249→                  Start import
+  1250→                </Button>
+  1251→              </div>
+  1252→            </motion.div>
+  1253→          )}
+  1254→
+  1255→          {/* Importing */}
+  1256→          {step === 'importing' && (
+  1257→            <motion.div
+  1258→              key="importing"
+  1259→              initial={{ opacity: 0 }}
+  1260→              animate={{ opacity: 1 }}
+  1261→              exit={{ opacity: 0 }}
+  1262→              transition={{ duration: 0.18 }}
+  1263→              className="py-8"
+  1264→            >
+  1265→              <ThinkingState label={thinkingLabel} size="lg" />
+  1266→              <div className="mt-6 text-center text-[12px] text-muted-foreground tabular-nums">
+  1267→                {importedCount} / {totalCount} leads created
+  1268→              </div>
+  1269→            </motion.div>
+  1270→          )}
+  1271→
+  1272→          {/* Done */}
+  1273→          {step === 'done' && (
+  1274→            <motion.div
+  1275→              key="done"
+  1276→              initial={{ opacity: 0, y: 6 }}
+  1277→              animate={{ opacity: 1, y: 0 }}
+  1278→              exit={{ opacity: 0, y: -6 }}
+  1279→              transition={{ duration: 0.18 }}
+  1280→              className="py-6 text-center space-y-4"
+  1281→            >
+  1282→              <div className="flex justify-center">
+  1283→                <div className="size-14 rounded-full bg-emerald-500/15 flex items-center justify-center">
+  1284→                  <CheckCircle2 className="size-8 text-emerald-600 dark:text-emerald-400" />
+  1285→                </div>
+  1286→              </div>
+  1287→              <div>
+  1288→                <div className="text-[15px] font-semibold">Imported {importedCount} lead{importedCount !== 1 ? 's' : ''}</div>
+  1289→                <div className="text-[12px] text-muted-foreground mt-1">
+  1290→                  Your new leads are ready in the Leads table.
+  1291→                </div>
+  1292→              </div>
+  1293→              <div className="flex items-center justify-center gap-2 pt-2">
+  1294→                <Button variant="outline" size="sm" onClick={resetWizard}>
+  1295→                  <RefreshCw className="size-3.5" /> Import another
+  1296→                </Button>
+  1297→                <Button
+  1298→                  size="sm"
+  1299→                  onClick={() => {
+  1300→                    onOpenChange(false)
+  1301→                    // navigate to first imported lead if available
+  1302→                    setTimeout(() => openDrawer('lead-new'), 100)
+  1303→                  }}
+  1304→                >
+  1305→                  View leads
+  1306→                </Button>
+  1307→              </div>
+  1308→            </motion.div>
+  1309→          )}
+  1310→        </AnimatePresence>
+  1311→      </DialogContent>
+  1312→    </Dialog>
+  1313→  )
+  1314→}
+  1315→
+  1316→// ----------------------------------------------------------------
+  1317→// Header strip (h-12, compact)
+  1318→// ----------------------------------------------------------------
+  1319→
+  1320→function HeaderStrip({
+  1321→  count,
+  1322→  q,
+  1323→  setQ,
+  1324→  status,
+  1325→  setStatus,
+  1326→  owner,
+  1327→  setOwner,
+  1328→  onImport,
+  1329→}: {
+  1330→  count: number
+  1331→  q: string
+  1332→  setQ: (v: string) => void
+  1333→  status: string
+  1334→  setStatus: (v: string) => void
+  1335→  owner: string
+  1336→  setOwner: (v: string) => void
+  1337→  onImport: () => void
+  1338→}) {
+  1339→  const openDrawer = useAppStore((s) => s.openDrawer)
+  1340→  const { data: membersData } = useSettings('members')
+  1341→  const members = (membersData as Membership[] | undefined) || []
+  1342→  const user = useAppStore((s) => s.user)
+  1343→
+  1344→  return (
+  1345→    <div className="flex items-center justify-between gap-2 h-12 mb-3">
+  1346→      <div className="flex items-center gap-2 shrink-0">
+  1347→        <h1 className="text-[15px] font-semibold tracking-tight">Leads</h1>
+  1348→        <Badge variant="secondary" className="tabular-nums text-[11px] h-5">{count}</Badge>
+  1349→      </div>
+  1350→      <div className="flex items-center gap-2">
+  1351→        <div className="relative">
+  1352→          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
+  1353→          <Input
+  1354→            placeholder="Search leads…"
+  1355→            value={q}
+  1356→            onChange={(e) => setQ(e.target.value)}
+  1357→            className="pl-8 h-8 w-[200px] text-[12.5px]"
+  1358→          />
+  1359→        </div>
+  1360→        <Select value={status} onValueChange={setStatus}>
+  1361→          <SelectTrigger size="sm" className="h-8 w-[120px] text-[12px]">
+  1362→            <SelectValue placeholder="Status" />
+  1363→          </SelectTrigger>
+  1364→          <SelectContent>
+  1365→            <SelectItem value="all">All statuses</SelectItem>
+  1366→            {LEAD_STATUSES.map((s) => (
+  1367→              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+  1368→            ))}
+  1369→          </SelectContent>
+  1370→        </Select>
+  1371→        <Select value={owner} onValueChange={setOwner}>
+  1372→          <SelectTrigger size="sm" className="h-8 w-[130px] text-[12px]">
+  1373→            <SelectValue placeholder="Owner" />
+  1374→          </SelectTrigger>
+  1375→          <SelectContent>
+  1376→            <SelectItem value="all">All owners</SelectItem>
+  1377→            <SelectItem value="me">Assigned to me</SelectItem>
+  1378→            <SelectItem value="unassigned">Unassigned</SelectItem>
+  1379→            {members.map((m) => (
+  1380→              <SelectItem key={m.id} value={m.userId}>
+  1381→                {m.user?.name || 'Unknown'}{m.userId === user?.id ? ' (me)' : ''}
+  1382→              </SelectItem>
+  1383→            ))}
+  1384→          </SelectContent>
+  1385→        </Select>
+  1386→        <Button variant="outline" size="sm" className="h-8 text-[12px] gap-1.5" onClick={onImport}>
+  1387→          <Upload className="size-3.5" /> Import CSV
+  1388→        </Button>
+  1389→        <Button size="sm" className="h-8 text-[12px] gap-1.5" onClick={() => openDrawer('lead-new')}>
+  1390→          <Plus className="size-3.5" /> New Lead
+  1391→        </Button>
+  1392→      </div>
+  1393→    </div>
+  1394→  )
+  1395→}
+  1396→
+  1397→// ----------------------------------------------------------------
+  1398→// Main view
+  1399→// ----------------------------------------------------------------
+  1400→
+  1401→export function LeadsView() {
+  1402→  const prefersReduced = useReducedMotion()
+  1403→  const [q, setQ] = React.useState('')
+  1404→  const [status, setStatus] = React.useState('all')
+  1405→  const [owner, setOwner] = React.useState('all')
+  1406→  const [importOpen, setImportOpen] = React.useState(false)
+  1407→  const debouncedQ = useDebounced(q, 250)
+  1408→
+  1409→  const { data: leads = [], isLoading } = useLeads(debouncedQ, status === 'all' ? undefined : status)
+  1410→  const user = useAppStore((s) => s.user)
+  1411→
+  1412→  const filtered = React.useMemo(() => {
+  1413→    let list = leads
+  1414→    if (owner === 'me') list = list.filter((l) => l.ownerId === user?.id)
+  1415→    else if (owner === 'unassigned') list = list.filter((l) => !l.ownerId)
+  1416→    else if (owner !== 'all') list = list.filter((l) => l.ownerId === owner)
+  1417→    return list
+  1418→  }, [leads, owner, user?.id])
+  1419→
+  1420→  const tabMotion = prefersReduced
+  1421→    ? { initial: false, animate: { opacity: 1 }, transition: { duration: 0 } }
+  1422→    : { initial: { opacity: 0, y: 4 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.18 } }
+  1423→
+  1424→  return (
+  1425→    <div className="p-4 md:p-5 view-enter">
+  1426→      <HeaderStrip
+  1427→        count={filtered.length}
+  1428→        q={q}
+  1429→        setQ={setQ}
+  1430→        status={status}
+  1431→        setStatus={setStatus}
+  1432→        owner={owner}
+  1433→        setOwner={setOwner}
+  1434→        onImport={() => setImportOpen(true)}
+  1435→      />
+  1436→
+  1437→      <Tabs defaultValue="table" className="w-full">
+  1438→        <TabsList className="mb-3 h-8">
+  1439→          <TabsTrigger value="table" className="text-[12px] gap-1.5 h-7">
+  1440→            <TableIcon className="size-3.5" /> Table
+  1441→          </TabsTrigger>
+  1442→          <TabsTrigger value="board" className="text-[12px] gap-1.5 h-7">
+  1443→            <LayoutGrid className="size-3.5" /> Board
+  1444→          </TabsTrigger>
+  1445→        </TabsList>
+  1446→
+  1447→        <TabsContent value="table" className="mt-0">
+  1448→          <motion.div key="table" {...tabMotion}>
+  1449→            {isLoading ? (
+  1450→              <LeadsSkeleton />
+  1451→            ) : filtered.length === 0 ? (
+  1452→              <div className="rounded-lg border border-border/60 bg-card shadow-soft">
+  1453→                <EmptyState
+  1454→                  icon={<UserPlus className="size-5" />}
+  1455→                  title="No leads yet"
+  1456→                  hint="Create your first lead or import a CSV to get started."
+  1457→                  action={
+  1458→                    <div className="flex items-center gap-2">
+  1459→                      <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+  1460→                        <Upload className="size-4" /> Import CSV
+  1461→                      </Button>
+  1462→                      <Button size="sm" onClick={() => useAppStore.getState().openDrawer('lead-new')}>
+  1463→                        <Plus className="size-4" /> New Lead
+  1464→                      </Button>
+  1465→                    </div>
+  1466→                  }
+  1467→                />
+  1468→              </div>
+  1469→            ) : (
+  1470→              <LeadsTable leads={filtered} />
+  1471→            )}
+  1472→          </motion.div>
+  1473→        </TabsContent>
+  1474→
+  1475→        <TabsContent value="board" className="mt-0">
+  1476→          <motion.div key="board" {...tabMotion}>
+  1477→            {isLoading ? (
+  1478→              <div className="flex gap-2.5 overflow-hidden">
+  1479→                {LEAD_STATUSES.map((s) => (
+  1480→                  <div key={s.value} className="min-w-[240px] w-[240px] bg-muted/30 rounded-lg border border-border/50 p-2 space-y-2">
+  1481→                    <Skeleton className="h-4 w-20 rounded" />
+  1482→                    {Array.from({ length: 2 }).map((_, i) => (
+  1483→                      <Skeleton key={i} className="h-16 w-full rounded-md" />
+  1484→                    ))}
+  1485→                  </div>
+  1486→                ))}
+  1487→              </div>
+  1488→            ) : filtered.length === 0 ? (
+  1489→              <div className="rounded-lg border border-border/60 bg-card shadow-soft">
+  1490→                <EmptyState
+  1491→                  icon={<UserPlus className="size-5" />}
+  1492→                  title="No leads to display"
+  1493→                  hint="Create a lead to see it on the board."
+  1494→                />
+  1495→              </div>
+  1496→            ) : (
+  1497→              <LeadsBoard leads={filtered} />
+  1498→            )}
+  1499→          </motion.div>
+  1500→        </TabsContent>
+  1501→      </Tabs>
+  1502→
+  1503→      <ImportCsvDialog open={importOpen} onOpenChange={setImportOpen} />
+  1504→    </div>
+  1505→  )
+  1506→}
+  1507→

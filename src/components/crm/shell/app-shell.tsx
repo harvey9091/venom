@@ -5,7 +5,7 @@ import { Avatar } from '@/components/crm/shared'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, KanbanSquare, ListTodo,
-  StickyNote, Workflow, Settings, Sparkles, Search,
+  StickyNote, Workflow, Settings, Search,
   UserPlus, Target, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { useKeyboardShortcuts } from '@/lib/shortcuts'
@@ -13,6 +13,9 @@ import { CommandPalette } from './command-palette'
 import { NotificationsInbox } from './notifications'
 import { ThemeSwitcher } from './theme-switcher'
 import { ThinkingIndicator, AIAssistant } from '@/components/crm/thinking'
+import { VenomFloatingDock } from './venom-floating-dock'
+import { useNavStore } from '@/lib/nav-prefs'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useEffect, useState } from 'react'
 import { useRealtime } from '@/lib/realtime'
 
@@ -70,7 +73,6 @@ function Sidebar() {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const workspace = useAppStore((s) => s.workspace)
   const navigate = useAppStore((s) => s.navigate)
-  const sidebarStyle = useAppStore.getState() // not used here, but referenced
 
   const groups = Array.from(new Set(NAV.map((n) => n.group)))
   return (
@@ -208,19 +210,41 @@ function TopBar() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   useKeyboardShortcuts()
   useRealtime()
+  const navMode = useNavStore((s) => s.navMode)
+  const routeView = useAppStore((s) => s.route.view)
+  const prefersReduced = useReducedMotion()
   const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  useEffect(() => {
+    // Defer to next tick to avoid "setState in effect" lint error while still
+    // gating SSR-incompatible client-only logic (nav preference from localStorage).
+    Promise.resolve().then(() => setMounted(true))
+  }, [])
   if (!mounted) return null
+
+  const useDock = navMode === 'dock'
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Only ONE nav mode rendered at a time */}
+      {!useDock && <Sidebar />}
+      <div className={cn('flex-1 flex flex-col min-w-0', useDock && 'pb-20 md:pb-0')}>
         <TopBar />
-        <main className="flex-1 min-w-0 overflow-x-hidden view-enter" key={useAppStore.getState().route.view}>
-          {children}
+        <main className="flex-1 min-w-0 overflow-x-hidden">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={routeView}
+              initial={prefersReduced ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={prefersReduced ? undefined : { opacity: 0, y: -4 }}
+              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              className="view-enter"
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
         </main>
       </div>
+      {useDock && <VenomFloatingDock />}
       <CommandPalette />
       <NotificationsInbox />
       <AIAssistant />

@@ -1178,3 +1178,85 @@ Final: **0 errors, 1 warning** ✅ (`bunx eslint src/components/crm/views/tasks.
 - The `Task.dueDate` is stored as an ISO string. The calendar groups by the **local-calendar day** of that timestamp (via `dayKey`), so a task due at 23:00 UTC on Jan 5 will appear on Jan 5 in UTC+ zones but Jan 6 in UTC- zones — this is intentional (displays the day the user experiences the deadline).
 - Newly created tasks (via empty-cell click) get a noon-local dueDate, which round-trips cleanly across timezones.
 - Drag-and-drop reschedule sends a noon-local ISO dueDate (preserves the calendar day regardless of viewer timezone).
+
+---
+
+## Task ID: venom-phase3-empty-states — Update Dashboard for zero-data state + premium empty states across all pages (Venom CRM Phase 3)
+
+**Agent:** full-stack-developer
+**Task:** Update all primary CRM views to gracefully handle the zero-data state (fresh workspace). Database has been wiped and the bootstrap endpoint auto-provisions a fresh workspace — every view must now show beautiful, contextual empty placeholders instead of fake charts/broken lists. All CTAs route to the right drawers (`lead-new`, `deal-new`, `task-new`, `note-new`).
+**Date:** 2025
+
+### Work Log
+
+1. Read context files first:
+   - `/home/z/my-project/worklog.md` (prior agent history — Pulse CRM → Venom CRM rebrand)
+   - `src/components/crm/views/dashboard.tsx` (existing KPI cards + charts + lists)
+   - `src/components/crm/shared.tsx` (`EmptyState`, `money()` ₹ INR, `Avatar`, `ScoreBar`, etc.)
+   - `src/lib/hooks.ts` (all `useLeads`, `useDeals`, `useTasks`, `useNotes`, `usePipelines`, `useAutomations`, `useActivities`, `useDashboard`)
+   - `src/lib/store.ts` (`useAppStore` — `openDrawer`, `navigate`)
+   - `src/app/api/crm/dashboard/route.ts` (confirmed metrics shape returned server-side)
+
+2. **`dashboard.tsx`** — major restructure:
+   - `KpiCard` — added `delta: string | null` (when null, hides "vs last month" row → shows "No data yet") + `muted?: boolean` (mutes the top gradient accent line + icon when value is 0). All 4 KPIs (Revenue, Pipeline Value, Open Deals, Conversion Rate) now pass `delta: null` and `muted: true` when their metric is 0.
+   - `RevenueChart` — added `isEmpty?: boolean` prop. When `m.revenue === 0 && m.pipelineValue === 0` (or monthly array is all-zero), renders a beautiful placeholder: muted dashed baseline through the chart area, centered circle with `TrendingUp` icon, "No revenue data yet" title, and "Create your first lead with an estimated value to see your revenue chart." hint. Card header still renders.
+   - `LeadSourcesDonut` — when `total === 0`, replaces the chart with an empty donut ring (`border-[14px] border-muted/60`) showing "No leads yet" in the center + "Add leads with a source to see your channel breakdown here." hint below.
+   - `PipelineOverview` — added `allEmpty` check (when every stage has 0 deals). Renders the stage label row + zero-width bar + "No deals in pipeline yet" muted hint instead of the stage legend.
+   - `TasksList` — empty state upgraded from a single line of muted text to a premium block: 40px ListTodo icon in muted circle + "No upcoming tasks" title + "Create a task to start tracking work." hint + "Create task" button → `openDrawer('task-new')`.
+   - `RecentLeadsList` — same pattern: UserPlus icon + "No leads yet" + "Add your first lead to start tracking deals." hint + "Create lead" button → `openDrawer('lead-new')`.
+   - `ActivityFeed` — empty state upgraded: ActivityIcon + "No activity yet" + "Activity from your team and automations will appear here." hint.
+   - `WelcomeBanner` (new) — renders at the top of the dashboard grid (`col-span-12`) when `m.leadCount === 0 && m.dealCount === 0 && m.contactCount === 0` (truly fresh workspace). Shows "New workspace" pill + "Welcome to Venom CRM 👋" heading + "Get started by creating your first lead or importing a CSV…" hint + 2 buttons (Create Lead → `openDrawer('lead-new')`, Import CSV → `navigate('import')`). Subtle `bg-primary/5 blur-3xl` flourish in the top-right. Respects reduced-motion.
+   - `DashboardView` main render — removed the early `if (isEmpty) return <DashboardEmpty />` return. Now always renders the dashboard structure using safe defaults (`ZERO_METRICS` literal + `?? []` for arrays). The `if (!data) return <DashboardEmpty />` fallback was also removed in favor of letting the structure render with zeros. Removed the `DashboardEmpty` function entirely (replaced by `WelcomeBanner` + always-on structure). Removed the now-unused `EmptyState` import. Added `useReducedMotion` import from `framer-motion` for the WelcomeBanner hover effect.
+
+3. **`leads.tsx`**:
+   - `BoardColumn` empty placeholder text changed from "Drop here" → "No leads" (per spec).
+   - Board view TabsContent: removed the `filtered.length === 0 ? <EmptyState />` branch — board now always renders `LeadsBoard` (which renders all 9 status columns; empty ones show "No leads"). This gives users the full Kanban structure even with 0 leads.
+   - Table view EmptyState copy: title `No leads yet` → `No leads found`, button `New Lead` → `Create Lead`. Added filter-aware title (`No leads match your filters` when q/status/owner are set, otherwise `No leads found`). CTA buttons hidden when filters applied.
+
+4. **`deals.tsx`**:
+   - EmptyState hint changed from "Start tracking revenue by creating your first deal…" → `Deals are created automatically when you set an estimated value on a lead. You can also create one manually.` (per spec). Button label `New deal` → `Create Deal`. Filter-aware behavior preserved.
+
+5. **`tasks.tsx`**:
+   - `ColumnBody` (Kanban) empty text: `Drop tasks here` → `No tasks` (per spec).
+   - Main render branch logic changed: `filtered.length === 0 && view !== 'calendar'` → `filtered.length === 0 && view === 'list'`. Board view now always renders `TasksBoard` (which renders all 4 status columns; empty ones show "No tasks"). Calendar view still always renders `TasksCalendar` (empty grid + clickable cells, unchanged).
+   - List view EmptyState copy: title `No tasks yet` → `No tasks`, hint simplified to `Create your first task to start tracking work.`, button `New task` → `Create Task`. Filter-aware title (`No tasks match your filters`) preserved.
+
+6. **`pipeline.tsx`**:
+   - `ColumnBody` — added `pipelineEmpty?: boolean` prop. When true, column body shows `No active deals` instead of `Drop deals here`. `StageColumn` — added `pipelineEmpty?: boolean` prop pass-through. `KanbanBoard` — passes `pipelineEmpty={localDeals.length === 0}` to each `StageColumn`. So when the entire pipeline has 0 deals, every column body shows "No active deals" muted text.
+   - `PipelineEmptyBanner` (new component) — top-level banner rendered above the Kanban board when `deals.length === 0`. Shows KanbanSquare icon + "No active deals" title + "Deals appear here automatically when you set an estimated value on a lead." hint + "Create Deal" button → `openDrawer('deal-new')`.
+   - `ForecastingPanel` — already handled empty state gracefully (`money(0)` returns ₹0, `winRate([])` returns 0). No changes needed.
+
+7. **`notes.tsx`**:
+   - EmptyState title `No notes yet` → `No notes`, hint changed to `Capture meeting notes, discovery call summaries, and context for your deals.`, button `Create your first note` → `Create Note`. Filter-aware behavior preserved.
+
+8. **`automations.tsx`**:
+   - `AutomationsEmptyState` title `Create your first automation` → `No automations`, button `New Automation` → `Create from scratch`. Template cards (Hot lead routing, Welcome email, etc.) preserved as starting points. The "Start from a template" section heading and all template cards untouched.
+
+9. **`ai-assistant.tsx`** — verified, no changes needed. Already shows:
+   - Large `ThinkingState` orb with "Ready when you are" label
+   - "Ask me anything about your CRM — summaries, drafts, scores, reports, or automation ideas." hint
+   - 5 suggestion chips (Summarize my week, Draft outreach email, Score my leads, Build a report, Suggest an automation)
+   - Empty messages array (`useState<Message[]>([])`) — no demo conversations on first open.
+
+10. Ran `bunx eslint` on all 8 files. **Result: 0 errors, 3 warnings — all pre-existing and not caused by these changes:**
+    - `ai-assistant.tsx:74:5` — unused `eslint-disable-next-line` directive (pre-existing)
+    - `deals.tsx:367:17` — TanStack Table `useReactTable()` "incompatible library" warning (pre-existing, untouched code)
+    - `tasks.tsx:671:17` — same TanStack Table warning (pre-existing, untouched code)
+
+### Empty-state design spec applied consistently
+
+- Large icon (40px) in a muted circle (`bg-muted`, `text-muted-foreground`)
+- Title: `text-[15px] font-semibold`
+- Hint: `text-[12px] text-muted-foreground max-w-xs`
+- CTA button (primary or outline) routes to the right drawer
+- Centered with `flex flex-col items-center justify-center py-10 px-6 text-center` (or similar)
+- All currency via `money()` → ₹ INR
+- All colors via Tailwind theme CSS variables (`bg-muted`, `text-muted-foreground`, `border-border/60`, etc.) — no hardcoded colors
+- `useReducedMotion()` respected on the WelcomeBanner hover effect
+
+### Note for downstream agents
+
+- The dashboard now renders its full structure even when `useDashboard()` returns no data (network error, no workspace, etc.) — KPIs show ₹0 / 0 / 0%, charts show their respective placeholders, lists show their CTA-equipped empty states. The `DashboardEmpty` component was fully removed.
+- The "truly fresh workspace" detection is `m.leadCount === 0 && m.dealCount === 0 && m.contactCount === 0` — once any of those becomes non-zero, the WelcomeBanner disappears but the per-card placeholders remain until that card's specific data exists.
+- `KpiCard` now accepts `delta: string | null` (not `string`) — callers passing a literal `string` will still work (TypeScript allows it), but `null` is the canonical "no delta" signal.
+- The `ColumnBody`/`StageColumn` in `pipeline.tsx` got a new `pipelineEmpty?: boolean` prop. The `KanbanBoard` parent computes it from `localDeals.length === 0` and passes it down. This is the canonical signal for "show 'No active deals' instead of 'Drop deals here'" in column bodies.

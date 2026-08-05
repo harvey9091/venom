@@ -592,12 +592,12 @@ export function DealsView() {
             hint={
               q || pipelineId !== 'all'
                 ? 'Try adjusting the search query or pipeline filter.'
-                : 'Start tracking revenue by creating your first deal. Add an amount, assign an owner, and watch it move through your pipeline.'
+                : 'Deals are created automatically when you set an estimated value on a lead. You can also create one manually.'
             }
             action={
               !q && pipelineId === 'all' ? (
                 <Button onClick={() => useAppStore.getState().openDrawer('deal-new')}>
-                  <Plus className="size-4" /> New deal
+                  <Plus className="size-4" /> Create Deal
                 </Button>
               ) : undefined
             }

@@ -1,9 +1,18 @@
 /**
- * Venom CRM — Seed Script
- * Populates a single workspace ("Venom CRM") with users, companies, contacts,
- * leads, deals, pipeline, tasks, notes, automations, notifications.
+ * Venom CRM — OPTIONAL Demo Seed Script
  *
- * Run with:  bun run db:seed
+ * This script is OPTIONAL. The application works perfectly on a fresh, empty
+ * database — all pages show premium empty states with CTAs.
+ *
+ * Run this script ONLY if you want demo data for testing/preview:
+ *   bun run db:seed-demo
+ *
+ * Populates a single workspace ("Venom CRM Demo") with sample users, companies,
+ * contacts, leads, deals, pipeline, tasks, notes, automations, notifications.
+ *
+ * In production with Supabase, NEVER run this. Fresh workspaces are provisioned
+ * automatically on first login via the bootstrap endpoint (creates a workspace
+ * + owner membership + default pipeline — no demo records).
  */
 import { PrismaClient } from '@prisma/client'
 import { createHash, randomBytes } from 'crypto'
@@ -56,9 +65,9 @@ async function main() {
   // --- Workspace ---
   const ws = await db.workspace.create({
     data: {
-      slug: 'venom',
-      name: 'Venom CRM',
-      description: 'Premium sales workspace for Venom CRM',
+      slug: 'venom-demo',
+      name: 'Venom CRM Demo',
+      description: 'Demo workspace with sample data — safe to delete',
       accentColor: '#d4a373',
       plan: 'pro',
     },

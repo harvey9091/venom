@@ -11,7 +11,6 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAppStore } from '@/lib/store'
 import { useThinkingStore } from '@/lib/thinking'
 import { simulateAIThinking, mockAIResponse, type ThinkingCategory } from '@/lib/ai-sim'

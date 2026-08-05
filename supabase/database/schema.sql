@@ -851,6 +851,39 @@ begin
 end $$;
 
 -- -------------------------------------------------------------
+-- 9b. Workspace Preferences (Phase 3 — Navigation mode persistence)
+-- -------------------------------------------------------------
+create table if not exists public.workspace_preferences (
+  workspace_id uuid primary key references public.workspaces(id) on delete cascade,
+  nav_mode     text default 'sidebar' check (nav_mode in ('sidebar', 'dock')),
+  updated_at   timestamptz default now()
+);
+
+alter table public.workspace_preferences enable row level security;
+create policy "ws_prefs_read" on public.workspace_preferences for select
+  using (workspace_id in (select public.current_user_workspace_ids()));
+create policy "ws_prefs_write" on public.workspace_preferences for update
+  using (workspace_id in (select workspace_id from public.memberships m
+    join public.users u on u.id = m.user_id
+    where u.auth_id = auth.uid() and m.role in ('owner', 'admin')))
+  with check (workspace_id in (select public.current_user_workspace_ids()));
+create policy "ws_prefs_insert" on public.workspace_preferences for insert
+  with check (workspace_id in (select public.current_user_workspace_ids()));
+
+create index if not exists idx_ws_prefs_workspace on public.workspace_preferences(workspace_id);
+
+-- Auto-upsert helper: create or update nav_mode for a workspace
+create or replace function public.upsert_nav_mode(ws_uuid uuid, mode text)
+returns void
+language sql
+security definer
+as $$
+  insert into public.workspace_preferences (workspace_id, nav_mode)
+  values (ws_uuid, mode)
+  on conflict (workspace_id) do update set nav_mode = excluded.nav_mode, updated_at = now();
+$$;
+
+-- -------------------------------------------------------------
 -- 10. Storage buckets
 -- -------------------------------------------------------------
 insert into storage.buckets (id, name, public) values ('venom-files', 'venom-files', true)

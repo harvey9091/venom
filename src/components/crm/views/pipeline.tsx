@@ -221,10 +221,13 @@ function DealCard({ deal, isOverlay }: { deal: Deal; isOverlay?: boolean }) {
 function ColumnBody({
   stageId,
   deals,
+  pipelineEmpty,
   children,
 }: {
   stageId: string
   deals: Deal[]
+  /** When true, the entire pipeline has zero deals — show "No active deals" instead of "Drop deals here". */
+  pipelineEmpty?: boolean
   children: React.ReactNode
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -242,7 +245,7 @@ function ColumnBody({
     >
       {deals.length === 0 && (
         <div className="h-24 rounded-lg border border-dashed border-border/50 grid place-items-center text-[11px] text-muted-foreground">
-          Drop deals here
+          {pipelineEmpty ? 'No active deals' : 'Drop deals here'}
         </div>
       )}
       {children}
@@ -258,10 +261,12 @@ function StageColumn({
   stage,
   deals,
   index,
+  pipelineEmpty,
 }: {
   stage: Stage
   deals: Deal[]
   index: number
+  pipelineEmpty?: boolean
 }) {
   const total = deals.reduce((sum, d) => sum + (d.amount || 0), 0)
   return (
@@ -289,7 +294,7 @@ function StageColumn({
         )}
       </div>
       <SortableContext items={deals.map((d) => d.id)} strategy={verticalListSortingStrategy}>
-        <ColumnBody stageId={stage.id} deals={deals}>
+        <ColumnBody stageId={stage.id} deals={deals} pipelineEmpty={pipelineEmpty}>
           {deals.map((d) => (
             <DealCard key={d.id} deal={d} />
           ))}
@@ -502,6 +507,7 @@ function KanbanBoard({
             stage={s}
             deals={grouped[s.id] || []}
             index={i}
+            pipelineEmpty={localDeals.length === 0}
           />
         ))}
         <AddStageSlot pipeline={pipeline} />
@@ -737,6 +743,32 @@ function PipelineHeader({
 }
 
 // ----------------------------------------------------------------
+// Top-level empty banner — shown above the Kanban board when the
+// selected pipeline has zero deals. Stages still render below it.
+// ----------------------------------------------------------------
+
+function PipelineEmptyBanner({ onCreateDeal }: { onCreateDeal: () => void }) {
+  return (
+    <div className="mb-4 rounded-xl border border-border/60 bg-card p-5 shadow-soft flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div className="flex items-start gap-3 min-w-0">
+        <div className="w-10 h-10 rounded-xl bg-muted grid place-items-center text-muted-foreground shrink-0">
+          <KanbanSquare className="size-5" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-[15px] font-semibold">No active deals</div>
+          <p className="text-[12px] text-muted-foreground mt-0.5 max-w-xl">
+            Deals appear here automatically when you set an estimated value on a lead.
+          </p>
+        </div>
+      </div>
+      <Button onClick={onCreateDeal} className="shrink-0">
+        <Plus className="size-4" /> Create Deal
+      </Button>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------
 // Main view
 // ----------------------------------------------------------------
 
@@ -803,6 +835,9 @@ export function PipelineView() {
         </div>
       ) : (
         <>
+          {deals.length === 0 && (
+            <PipelineEmptyBanner onCreateDeal={() => openDrawer('deal-new')} />
+          )}
           <KanbanBoard pipeline={selectedPipeline} deals={deals} />
           <ForecastingPanel deals={deals} stages={selectedPipeline.stages} />
         </>

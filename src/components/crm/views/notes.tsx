@@ -314,16 +314,16 @@ export function NotesView() {
         <div className="rounded-xl border border-border/60 bg-card shadow-soft">
           <EmptyState
             icon={<StickyNote className="size-5" />}
-            title={pinnedOnly || debouncedQ ? 'No notes match your filters' : 'No notes yet'}
+            title={pinnedOnly || debouncedQ ? 'No notes match your filters' : 'No notes'}
             hint={
               pinnedOnly || debouncedQ
                 ? 'Try adjusting the search query or pinned filter.'
-                : 'Capture context from conversations, research, or follow-up reminders. Notes can be pinned and linked to leads, contacts, deals, or companies.'
+                : 'Capture meeting notes, discovery call summaries, and context for your deals.'
             }
             action={
               !pinnedOnly && !debouncedQ ? (
                 <Button onClick={() => useAppStore.getState().openDrawer('note-new')}>
-                  <Plus className="size-4" /> Create your first note
+                  <Plus className="size-4" /> Create Note
                 </Button>
               ) : undefined
             }

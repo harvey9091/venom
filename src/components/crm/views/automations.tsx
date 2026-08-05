@@ -557,11 +557,11 @@ function AutomationsEmptyState({ onNew, onUseTemplate }: {
       <div className="w-full max-w-3xl">
         <EmptyState
           icon={<Workflow className="size-5" />}
-          title="Create your first automation"
+          title="No automations"
           hint="Automations run automatically when triggers fire — route hot leads, send welcome emails, nudge stale deals, and more. Start from scratch or pick a template below."
           action={
             <Button onClick={onNew}>
-              <Plus size={14} /> New Automation
+              <Plus size={14} /> Create from scratch
             </Button>
           }
         />

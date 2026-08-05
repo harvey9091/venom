@@ -6,7 +6,6 @@ import { useThemeStore, THEME_PRESETS } from '@/lib/theme'
 import { useAppStore } from '@/lib/store'
 import { Palette, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useRouter } from 'next/navigation'
 
 export function ThemeSwitcher() {
   const { config, setTheme } = useThemeStore()
