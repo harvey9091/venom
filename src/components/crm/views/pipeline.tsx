@@ -63,6 +63,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { AppContentContainer } from '@/components/crm/shell/app-content-container'
 import type { Deal, Pipeline, Stage } from '@/lib/types'
 import {
   Plus,
@@ -799,7 +800,7 @@ export function PipelineView() {
   const isLoading = pipelinesLoading || dealsLoading || !selectedPipeline
 
   return (
-    <div className="p-4 md:p-6 view-enter">
+    <AppContentContainer preset="wide">
       <PipelineHeader
         pipelines={pipelines}
         selectedId={selectedPipelineId}
@@ -842,6 +843,6 @@ export function PipelineView() {
           <ForecastingPanel deals={deals} stages={selectedPipeline.stages} />
         </>
       )}
-    </div>
+    </AppContentContainer>
   )
 }

@@ -1,0 +1,1106 @@
+     1→'use client'
+     2→
+     3→/**
+     4→ * Pulse CRM — Dashboard view
+     5→ * Premium Linear/Vercel/Stripe-inspired landing page.
+     6→ * Renders KPI strip, revenue chart, lead sources donut, pipeline health,
+     7→ * upcoming tasks, recent leads, activity feed, and quick actions.
+     8→ */
+     9→
+    10→import * as React from 'react'
+    11→import { useDashboard } from '@/lib/hooks'
+    12→import { useAppStore } from '@/lib/store'
+    13→import {
+    14→  Avatar,
+    15→  ScoreBar,
+    16→  StatusDot,
+    17→  PriorityPill,
+    18→  money,
+    19→  relTime,
+    20→} from '@/components/crm/shared'
+    21→import { Skeleton } from '@/components/ui/skeleton'
+    22→import { Button } from '@/components/ui/button'
+    23→import { ThinkingState } from '@/components/crm/thinking'
+    24→import { useThinkingTask } from '@/lib/thinking'
+    25→import { cn } from '@/lib/utils'
+    26→import { motion, useReducedMotion, type Variants } from 'framer-motion'
+    27→import {
+    28→  Area,
+    29→  AreaChart,
+    30→  CartesianGrid,
+    31→  Cell,
+    32→  Pie,
+    33→  PieChart,
+    34→  ResponsiveContainer,
+    35→  Tooltip,
+    36→  XAxis,
+    37→  YAxis,
+    38→} from 'recharts'
+    39→import {
+    40→  DollarSign,
+    41→  TrendingUp,
+    42→  Target,
+    43→  Percent,
+    44→  ArrowUpRight,
+    45→  ArrowDownRight,
+    46→  UserPlus,
+    47→  KanbanSquare,
+    48→  Upload,
+    49→  ListTodo,
+    50→  Sparkles,
+    51→  ChevronRight,
+    52→  Activity as ActivityIcon,
+    53→  RotateCcw,
+    54→} from 'lucide-react'
+    55→import type { Task, Lead, Activity } from '@/lib/types'
+    56→
+    57→// ---------------------------------------------------------------
+    58→// Types — match the shape returned by useDashboard()
+    59→// ---------------------------------------------------------------
+    60→interface DashboardMetrics {
+    61→  revenue: number
+    62→  pipelineValue: number
+    63→  weightedPipeline: number
+    64→  dealCount: number
+    65→  wonDeals: number
+    66→  lostDeals: number
+    67→  openDeals: number
+    68→  leadCount: number
+    69→  contactCount: number
+    70→  avgDealSize: number
+    71→  conversionRate: number
+    72→  wonRate: number
+    73→}
+    74→
+    75→interface MonthlyPoint {
+    76→  label: string
+    77→  revenue: number
+    78→  pipeline: number
+    79→}
+    80→
+    81→interface LeadSource {
+    82→  name: string
+    83→  value: number
+    84→}
+    85→
+    86→interface PipelineStage {
+    87→  id: string
+    88→  name: string
+    89→  color: string
+    90→  probability: number
+    91→  dealCount: number
+    92→  value: number
+    93→}
+    94→
+    95→interface PipelineSummary {
+    96→  id: string
+    97→  name: string
+    98→  stages: PipelineStage[]
+    99→}
+   100→
+   101→interface DashboardData {
+   102→  metrics: DashboardMetrics
+   103→  monthly: MonthlyPoint[]
+   104→  leadSources: LeadSource[]
+   105→  pipelines: PipelineSummary[]
+   106→  upcomingTasks: Task[]
+   107→  recentLeads: Lead[]
+   108→  activities: Activity[]
+   109→}
+   110→
+   111→// ---------------------------------------------------------------
+   112→// Animation
+   113→// ---------------------------------------------------------------
+   114→const container: Variants = {
+   115→  hidden: {},
+   116→  show: { transition: { staggerChildren: 0.05 } },
+   117→}
+   118→
+   119→const item: Variants = {
+   120→  hidden: { opacity: 0, y: 8 },
+   121→  show: {
+   122→    opacity: 1,
+   123→    y: 0,
+   124→    transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] },
+   125→  },
+   126→}
+   127→
+   128→// ---------------------------------------------------------------
+   129→// Shared primitives
+   130→// ---------------------------------------------------------------
+   131→type IconType = React.ComponentType<{ size?: number; className?: string }>
+   132→
+   133→const DONUT_COLORS = [
+   134→  'var(--chart-1)',
+   135→  'var(--chart-2)',
+   136→  'var(--chart-3)',
+   137→  'var(--chart-4)',
+   138→  'var(--chart-5)',
+   139→]
+   140→
+   141→function CardShell({
+   142→  className,
+   143→  children,
+   144→  ...props
+   145→}: React.ComponentProps<'div'>) {
+   146→  return (
+   147→    <div
+   148→      className={cn(
+   149→        'card-premium bg-card text-card-foreground rounded-xl border border-border/60 p-5 md:p-6 shadow-soft',
+   150→        'transition-all duration-300 hover:-translate-y-px hover:shadow-glow',
+   151→        className
+   152→      )}
+   153→      {...props}
+   154→    >
+   155→      {children}
+   156→    </div>
+   157→  )
+   158→}
+   159→
+   160→function CardHead({
+   161→  title,
+   162→  subtitle,
+   163→  action,
+   164→}: {
+   165→  title: string
+   166→  subtitle?: string
+   167→  action?: React.ReactNode
+   168→}) {
+   169→  return (
+   170→    <div className="flex items-start justify-between gap-3 mb-4">
+   171→      <div className="min-w-0">
+   172→        <h3 className="text-sm font-semibold tracking-tight truncate">{title}</h3>
+   173→        {subtitle && (
+   174→          <p className="text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>
+   175→        )}
+   176→      </div>
+   177→      {action}
+   178→    </div>
+   179→  )
+   180→}
+   181→
+   182→function Legend({ color, label }: { color: string; label: string }) {
+   183→  return (
+   184→    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+   185→      <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+   186→      {label}
+   187→    </span>
+   188→  )
+   189→}
+   190→
+   191→/** Format a due date — uses relTime for past items, "in Xd/h" for future ones. */
+   192→function dueLabel(date?: string | null) {
+   193→  if (!date) return 'No due date'
+   194→  const d = new Date(date)
+   195→  const diff = (d.getTime() - Date.now()) / 1000
+   196→  if (diff < 0) return `Overdue · ${relTime(date)}`
+   197→  if (diff < 3600) return `Due in ${Math.floor(diff / 60)}m`
+   198→  if (diff < 86400) return `Due in ${Math.floor(diff / 3600)}h`
+   199→  if (diff < 86400 * 7) return `Due in ${Math.floor(diff / 86400)}d`
+   200→  return `Due ${d.toLocaleDateString()}`
+   201→}
+   202→
+   203→// ---------------------------------------------------------------
+   204→// 1. KPI strip
+   205→// ---------------------------------------------------------------
+   206→function KpiCard({
+   207→  label,
+   208→  value,
+   209→  delta,
+   210→  deltaPositive,
+   211→  icon: Icon,
+   212→  accent,
+   213→  muted,
+   214→}: {
+   215→  label: string
+   216→  value: string
+   217→  /** When null, the delta row is hidden (used for zero values). */
+   218→  delta: string | null
+   219→  deltaPositive: boolean
+   220→  icon: IconType
+   221→  accent: string
+   222→  /** When true, mutes the accent line + icon (used for zero values). */
+   223→  muted?: boolean
+   224→}) {
+   225→  return (
+   226→    <div className="card-premium relative overflow-hidden bg-card text-card-foreground rounded-xl border border-border/60 p-5 shadow-soft transition-all duration-300 hover:-translate-y-px hover:shadow-glow">
+   227→      {/* gradient accent line on top — muted when zero */}
+   228→      <div
+   229→        className="absolute top-0 left-0 right-0 h-[2px] transition-opacity"
+   230→        style={{
+   231→          background: `linear-gradient(90deg, ${accent}, color-mix(in oklch, ${accent} 30%, transparent))`,
+   232→          opacity: muted ? 0.25 : 1,
+   233→        }}
+   234→      />
+   235→      <div className="flex items-start justify-between mb-3">
+   236→        <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+   237→          {label}
+   238→        </div>
+   239→        <div
+   240→          className="w-8 h-8 rounded-lg grid place-items-center shrink-0 transition-opacity"
+   241→          style={{
+   242→            background: `color-mix(in oklch, ${accent} 14%, transparent)`,
+   243→            color: accent,
+   244→            opacity: muted ? 0.5 : 1,
+   245→          }}
+   246→        >
+   247→          <Icon size={15} />
+   248→        </div>
+   249→      </div>
+   250→      <div className="text-2xl md:text-[28px] font-semibold tracking-tight tabular-nums leading-none">
+   251→        {value}
+   252→      </div>
+   253→      {delta ? (
+   254→        <div className="flex items-center gap-1.5 mt-3 text-xs">
+   255→          <span
+   256→            className={cn(
+   257→              'inline-flex items-center gap-0.5 font-medium tabular-nums',
+   258→              deltaPositive
+   259→                ? 'text-emerald-600 dark:text-emerald-400'
+   260→                : 'text-rose-600 dark:text-rose-400'
+   261→            )}
+   262→          >
+   263→            {deltaPositive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+   264→            {delta}
+   265→          </span>
+   266→          <span className="text-muted-foreground">vs last month</span>
+   267→        </div>
+   268→      ) : (
+   269→        <div className="mt-3 text-[11px] text-muted-foreground/70">No data yet</div>
+   270→      )}
+   271→    </div>
+   272→  )
+   273→}
+   274→
+   275→// ---------------------------------------------------------------
+   276→// 2. Revenue chart (Area chart)
+   277→// ---------------------------------------------------------------
+   278→function ChartTooltip({
+   279→  active,
+   280→  payload,
+   281→  label,
+   282→}: {
+   283→  active?: boolean
+   284→  payload?: Array<{ dataKey?: string; value?: number; color?: string }>
+   285→  label?: string
+   286→}) {
+   287→  if (!active || !payload?.length) return null
+   288→  return (
+   289→    <div className="rounded-lg border border-border/60 bg-popover px-3 py-2 shadow-soft text-xs">
+   290→      <div className="font-medium mb-1.5">{label}</div>
+   291→      {payload.map((p) => (
+   292→        <div key={p.dataKey} className="flex items-center gap-2">
+   293→          <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
+   294→          <span className="text-muted-foreground capitalize">{p.dataKey}</span>
+   295→          <span className="ml-auto font-medium tabular-nums">
+   296→            {money(p.value ?? 0)}
+   297→          </span>
+   298→        </div>
+   299→      ))}
+   300→    </div>
+   301→  )
+   302→}
+   303→
+   304→function RevenueChart({ data, isEmpty }: { data: MonthlyPoint[]; isEmpty?: boolean }) {
+   305→  const allZero =
+   306→    isEmpty ||
+   307→    !data.length ||
+   308→    data.every((d) => (d.revenue || 0) === 0 && (d.pipeline || 0) === 0)
+   309→  return (
+   310→    <CardShell className="h-full flex flex-col">
+   311→      <CardHead
+   312→        title="Revenue & Pipeline"
+   313→        subtitle="Last 6 months"
+   314→        action={
+   315→          <div className="flex items-center gap-3 text-[11px]">
+   316→            <Legend color="var(--chart-1)" label="Revenue" />
+   317→            <Legend color="var(--chart-2)" label="Pipeline" />
+   318→          </div>
+   319→        }
+   320→      />
+   321→      {allZero ? (
+   322→        <div className="h-[260px] flex-1 relative grid place-items-center">
+   323→          {/* muted dashed baseline */}
+   324→          <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-border/60" />
+   325→          <div className="relative flex flex-col items-center text-center px-6">
+   326→            <div className="w-12 h-12 rounded-full bg-muted grid place-items-center text-muted-foreground mb-3">
+   327→              <TrendingUp size={20} />
+   328→            </div>
+   329→            <div className="text-[15px] font-semibold">No revenue data yet</div>
+   330→            <p className="text-[12px] text-muted-foreground mt-1 max-w-xs">
+   331→              Create your first lead with an estimated value to see your revenue chart.
+   332→            </p>
+   333→          </div>
+   334→        </div>
+   335→      ) : (
+   336→        <div className="h-[260px] -ml-2 flex-1">
+   337→          <ResponsiveContainer width="100%" height="100%">
+   338→            <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+   339→              <defs>
+   340→                <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+   341→                  <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.35} />
+   342→                  <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
+   343→                </linearGradient>
+   344→                <linearGradient id="pipeGrad" x1="0" y1="0" x2="0" y2="1">
+   345→                  <stop offset="0%" stopColor="var(--chart-2)" stopOpacity={0.25} />
+   346→                  <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0} />
+   347→                </linearGradient>
+   348→              </defs>
+   349→              <CartesianGrid
+   350→                strokeDasharray="3 3"
+   351→                stroke="var(--border)"
+   352→                strokeOpacity={0.5}
+   353→                vertical={false}
+   354→              />
+   355→              <XAxis
+   356→                dataKey="label"
+   357→                stroke="var(--muted-foreground)"
+   358→                fontSize={11}
+   359→                tickLine={false}
+   360→                axisLine={false}
+   361→                dy={8}
+   362→              />
+   363→              <YAxis
+   364→                stroke="var(--muted-foreground)"
+   365→                fontSize={11}
+   366→                tickLine={false}
+   367→                axisLine={false}
+   368→                tickFormatter={(v) => `${(Number(v) / 1000).toFixed(0)}k`}
+   369→                width={36}
+   370→              />
+   371→              <Tooltip
+   372→                content={<ChartTooltip />}
+   373→                cursor={{ stroke: 'var(--border)', strokeDasharray: '3 3' }}
+   374→              />
+   375→              <Area
+   376→                type="monotone"
+   377→                dataKey="revenue"
+   378→                stroke="var(--chart-1)"
+   379→                strokeWidth={2}
+   380→                fill="url(#revGrad)"
+   381→                dot={false}
+   382→                activeDot={{ r: 4, stroke: 'var(--background)', strokeWidth: 2 }}
+   383→              />
+   384→              <Area
+   385→                type="monotone"
+   386→                dataKey="pipeline"
+   387→                stroke="var(--chart-2)"
+   388→                strokeWidth={2}
+   389→                fill="url(#pipeGrad)"
+   390→                dot={false}
+   391→                activeDot={{ r: 4, stroke: 'var(--background)', strokeWidth: 2 }}
+   392→              />
+   393→            </AreaChart>
+   394→          </ResponsiveContainer>
+   395→        </div>
+   396→      )}
+   397→    </CardShell>
+   398→  )
+   399→}
+   400→
+   401→// ---------------------------------------------------------------
+   402→// 3. Lead Sources donut
+   403→// ---------------------------------------------------------------
+   404→function DonutTooltip({
+   405→  active,
+   406→  payload,
+   407→}: {
+   408→  active?: boolean
+   409→  payload?: Array<{ name?: string; value?: number; payload?: { fill?: string } }>
+   410→}) {
+   411→  if (!active || !payload?.length) return null
+   412→  const p = payload[0]
+   413→  return (
+   414→    <div className="rounded-lg border border-border/60 bg-popover px-3 py-2 shadow-soft text-xs">
+   415→      <div className="flex items-center gap-2">
+   416→        <span className="w-2 h-2 rounded-full" style={{ background: p.payload?.fill }} />
+   417→        <span className="text-muted-foreground capitalize">{p.name}</span>
+   418→        <span className="ml-auto font-medium tabular-nums">{p.value}</span>
+   419→      </div>
+   420→    </div>
+   421→  )
+   422→}
+   423→
+   424→function LeadSourcesDonut({
+   425→  data,
+   426→  total,
+   427→}: {
+   428→  data: LeadSource[]
+   429→  total: number
+   430→}) {
+   431→  const isEmpty = total === 0 || data.every((d) => (d.value || 0) === 0)
+   432→  return (
+   433→    <CardShell className="h-full flex flex-col">
+   434→      <CardHead title="Lead Sources" subtitle="By channel" />
+   435→      {isEmpty ? (
+   436→        <div className="flex-1 flex flex-col items-center justify-center py-6">
+   437→          {/* empty donut ring */}
+   438→          <div className="relative w-[140px] h-[140px] my-2">
+   439→            <div className="absolute inset-0 rounded-full border-[14px] border-muted/60" />
+   440→            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+   441→              <span className="text-[15px] font-semibold text-muted-foreground">No leads yet</span>
+   442→            </div>
+   443→          </div>
+   444→          <p className="text-[12px] text-muted-foreground mt-2 max-w-[220px] text-center">
+   445→            Add leads with a source to see your channel breakdown here.
+   446→          </p>
+   447→        </div>
+   448→      ) : (
+   449→        <>
+   450→          <div className="relative h-[180px] my-2">
+   451→            <ResponsiveContainer width="100%" height="100%">
+   452→              <PieChart>
+   453→                <Pie
+   454→                  data={data}
+   455→                  dataKey="value"
+   456→                  nameKey="name"
+   457→                  innerRadius={56}
+   458→                  outerRadius={80}
+   459→                  paddingAngle={2}
+   460→                  stroke="none"
+   461→                >
+   462→                  {data.map((_, i) => (
+   463→                    <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
+   464→                  ))}
+   465→                </Pie>
+   466→                <Tooltip content={<DonutTooltip />} cursor={false} />
+   467→              </PieChart>
+   468→            </ResponsiveContainer>
+   469→            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+   470→              <span className="text-2xl font-semibold tabular-nums">{total}</span>
+   471→              <span className="text-[11px] text-muted-foreground">total leads</span>
+   472→            </div>
+   473→          </div>
+   474→          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-3">
+   475→            {data.slice(0, 6).map((s, i) => (
+   476→              <div key={s.name} className="flex items-center gap-2 text-[11px]">
+   477→                <span
+   478→                  className="w-2 h-2 rounded-full shrink-0"
+   479→                  style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }}
+   480→                />
+   481→                <span className="truncate text-muted-foreground capitalize">{s.name}</span>
+   482→                <span className="ml-auto font-medium tabular-nums">{s.value}</span>
+   483→              </div>
+   484→            ))}
+   485→          </div>
+   486→        </>
+   487→      )}
+   488→    </CardShell>
+   489→  )
+   490→}
+   491→
+   492→// ---------------------------------------------------------------
+   493→// 4. Pipeline overview (stacked horizontal bars)
+   494→// ---------------------------------------------------------------
+   495→function PipelineOverview({ pipelines }: { pipelines: PipelineSummary[] }) {
+   496→  return (
+   497→    <CardShell className="h-full flex flex-col">
+   498→      <CardHead title="Pipeline Health" subtitle="Value by stage" />
+   499→      {pipelines.length === 0 ? (
+   500→        <div className="text-xs text-muted-foreground py-10 text-center flex-1">
+   501→          No pipelines configured
+   502→        </div>
+   503→      ) : (
+   504→        <div className="space-y-5 flex-1">
+   505→          {pipelines.map((p) => {
+   506→            const total = p.stages.reduce((s, st) => s + st.value, 0)
+   507→            const allEmpty =
+   508→              p.stages.length === 0 || p.stages.every((st) => st.dealCount === 0)
+   509→            return (
+   510→              <div key={p.id}>
+   511→                <div className="flex items-center justify-between mb-1.5">
+   512→                  <span className="text-xs font-medium truncate">{p.name}</span>
+   513→                  <span className="text-[11px] text-muted-foreground tabular-nums ml-2">
+   514→                    {money(total)}
+   515→                  </span>
+   516→                </div>
+   517→                <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden flex">
+   518→                  {p.stages.map((st) => {
+   519→                    const w = total > 0 ? (st.value / total) * 100 : 0
+   520→                    if (w === 0) return null
+   521→                    return (
+   522→                      <div
+   523→                        key={st.id}
+   524→                        className="h-full transition-all group relative cursor-default"
+   525→                        style={{ width: `${w}%`, background: st.color }}
+   526→                      >
+   527→                        {/* hover tooltip */}
+   528→                        <div className="absolute left-1/2 -translate-x-1/2 -top-9 hidden group-hover:flex items-center gap-1 px-2 py-1 rounded-md bg-popover border border-border/60 text-[10px] whitespace-nowrap shadow-soft z-10">
+   529→                          <span className="font-medium">{st.name}</span>
+   530→                          <span className="text-muted-foreground">·</span>
+   531→                          <span className="tabular-nums">{money(st.value)}</span>
+   532→                          <span className="text-muted-foreground">
+   533→                            ({st.dealCount} {st.dealCount === 1 ? 'deal' : 'deals'})
+   534→                          </span>
+   535→                        </div>
+   536→                      </div>
+   537→                    )
+   538→                  })}
+   539→                  {total === 0 && (
+   540→                    <div className="h-full w-full bg-muted/50" />
+   541→                  )}
+   542→                </div>
+   543→                {allEmpty ? (
+   544→                  <div className="mt-2 text-[11px] text-muted-foreground">
+   545→                    No deals in pipeline yet
+   546→                  </div>
+   547→                ) : (
+   548→                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
+   549→                    {p.stages
+   550→                      .filter((s) => s.value > 0 || s.dealCount > 0)
+   551→                      .map((st) => (
+   552→                        <span
+   553→                          key={st.id}
+   554→                          className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+   555→                        >
+   556→                          <span
+   557→                            className="w-1.5 h-1.5 rounded-full"
+   558→                            style={{ background: st.color }}
+   559→                          />
+   560→                          {st.name}
+   561→                          <span className="tabular-nums text-foreground/70">
+   562→                            {st.dealCount}
+   563→                          </span>
+   564→                        </span>
+   565→                      ))}
+   566→                  </div>
+   567→                )}
+   568→              </div>
+   569→            )
+   570→          })}
+   571→        </div>
+   572→      )}
+   573→    </CardShell>
+   574→  )
+   575→}
+   576→
+   577→// ---------------------------------------------------------------
+   578→// 5. Upcoming Tasks
+   579→// ---------------------------------------------------------------
+   580→function TasksList({ tasks }: { tasks: Task[] }) {
+   581→  const openDrawer = useAppStore((s) => s.openDrawer)
+   582→  return (
+   583→    <CardShell className="h-full flex flex-col">
+   584→      <CardHead
+   585→        title="Upcoming Tasks"
+   586→        subtitle="Next due"
+   587→        action={
+   588→          <span className="text-[11px] tabular-nums text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+   589→            {tasks.length}
+   590→          </span>
+   591→        }
+   592→      />
+   593→      {tasks.length === 0 ? (
+   594→        <div className="flex-1 flex flex-col items-center justify-center py-10 px-6 text-center">
+   595→          <div className="w-10 h-10 rounded-xl bg-muted grid place-items-center text-muted-foreground mb-3">
+   596→            <ListTodo size={18} />
+   597→          </div>
+   598→          <div className="text-[15px] font-semibold">No upcoming tasks</div>
+   599→          <p className="text-[12px] text-muted-foreground mt-1 max-w-xs">
+   600→            Create a task to start tracking work.
+   601→          </p>
+   602→          <Button
+   603→            size="sm"
+   604→            variant="outline"
+   605→            className="mt-4 h-8"
+   606→            onClick={() => openDrawer('task-new')}
+   607→          >
+   608→            <ListTodo size={13} /> Create task
+   609→          </Button>
+   610→        </div>
+   611→      ) : (
+   612→        <div className="flex-1 -mx-2 max-h-[300px] overflow-y-auto scroll-area">
+   613→          {tasks.map((t) => (
+   614→            <button
+   615→              key={t.id}
+   616→              onClick={() => openDrawer('task', t.id)}
+   617→              className="w-full group flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-muted/50 transition-colors text-left"
+   618→            >
+   619→              <PriorityPill priority={t.priority} />
+   620→              <div className="flex-1 min-w-0">
+   621→                <div className="text-[13px] font-medium truncate">{t.title}</div>
+   622→                <div className="text-[11px] text-muted-foreground truncate">
+   623→                  {dueLabel(t.dueDate)}
+   624→                </div>
+   625→              </div>
+   626→              {t.assignee && (
+   627→                <Avatar
+   628→                  name={t.assignee.name}
+   629→                  url={t.assignee.avatarUrl}
+   630→                  size={24}
+   631→                />
+   632→              )}
+   633→              <ChevronRight
+   634→                size={14}
+   635→                className="text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0"
+   636→              />
+   637→            </button>
+   638→          ))}
+   639→        </div>
+   640→      )}
+   641→    </CardShell>
+   642→  )
+   643→}
+   644→
+   645→// ---------------------------------------------------------------
+   646→// 6. Recent Leads
+   647→// ---------------------------------------------------------------
+   648→function RecentLeadsList({ leads }: { leads: Lead[] }) {
+   649→  const openDrawer = useAppStore((s) => s.openDrawer)
+   650→  return (
+   651→    <CardShell className="h-full flex flex-col">
+   652→      <CardHead
+   653→        title="Recent Leads"
+   654→        subtitle="Newest first"
+   655→        action={
+   656→          <span className="text-[11px] tabular-nums text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+   657→            {leads.length}
+   658→          </span>
+   659→        }
+   660→      />
+   661→      {leads.length === 0 ? (
+   662→        <div className="flex-1 flex flex-col items-center justify-center py-10 px-6 text-center">
+   663→          <div className="w-10 h-10 rounded-xl bg-muted grid place-items-center text-muted-foreground mb-3">
+   664→            <UserPlus size={18} />
+   665→          </div>
+   666→          <div className="text-[15px] font-semibold">No leads yet</div>
+   667→          <p className="text-[12px] text-muted-foreground mt-1 max-w-xs">
+   668→            Add your first lead to start tracking deals.
+   669→          </p>
+   670→          <Button
+   671→            size="sm"
+   672→            variant="outline"
+   673→            className="mt-4 h-8"
+   674→            onClick={() => openDrawer('lead-new')}
+   675→          >
+   676→            <UserPlus size={13} /> Create lead
+   677→          </Button>
+   678→        </div>
+   679→      ) : (
+   680→        <div className="flex-1 -mx-2 max-h-[300px] overflow-y-auto scroll-area">
+   681→          {leads.map((l) => (
+   682→            <button
+   683→              key={l.id}
+   684→              onClick={() => openDrawer('lead', l.id)}
+   685→              className="w-full group flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-muted/50 transition-colors text-left"
+   686→            >
+   687→              <Avatar
+   688→                name={l.fullName}
+   689→                url={l.contact?.avatarUrl}
+   690→                size={28}
+   691→              />
+   692→              <div className="flex-1 min-w-0">
+   693→                <div className="text-[13px] font-medium truncate">{l.fullName}</div>
+   694→                <div className="text-[11px] text-muted-foreground truncate">
+   695→                  {l.source ? (
+   696→                    <span className="capitalize">{l.source}</span>
+   697→                  ) : (
+   698→                    'no source'
+   699→                  )}
+   700→                  {l.company?.name ? ` · ${l.company.name}` : ''}
+   701→                </div>
+   702→              </div>
+   703→              <ScoreBar score={l.score} />
+   704→              <StatusDot status={l.status} />
+   705→              <ChevronRight
+   706→                size={14}
+   707→                className="text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0"
+   708→              />
+   709→            </button>
+   710→          ))}
+   711→        </div>
+   712→      )}
+   713→    </CardShell>
+   714→  )
+   715→}
+   716→
+   717→// ---------------------------------------------------------------
+   718→// 7. Activity Feed (timeline)
+   719→// ---------------------------------------------------------------
+   720→function ActivityFeed({ activities }: { activities: Activity[] }) {
+   721→  return (
+   722→    <CardShell className="h-full flex flex-col">
+   723→      <CardHead title="Activity Feed" subtitle="Latest events" />
+   724→      {activities.length === 0 ? (
+   725→        <div className="flex-1 flex flex-col items-center justify-center py-10 px-6 text-center">
+   726→          <div className="w-10 h-10 rounded-xl bg-muted grid place-items-center text-muted-foreground mb-3">
+   727→            <ActivityIcon size={18} />
+   728→          </div>
+   729→          <div className="text-[15px] font-semibold">No activity yet</div>
+   730→          <p className="text-[12px] text-muted-foreground mt-1 max-w-xs">
+   731→            Activity from your team and automations will appear here.
+   732→          </p>
+   733→        </div>
+   734→      ) : (
+   735→        <div className="flex-1 -mx-1 max-h-[360px] overflow-y-auto scroll-area">
+   736→          <ol className="relative pl-5">
+   737→            <span className="absolute left-1.5 top-1 bottom-1 w-px bg-border" />
+   738→            {activities.map((a) => (
+   739→              <li key={a.id} className="relative flex gap-3 py-2 pr-2">
+   740→                <span className="absolute -left-[14px] top-3.5 w-2 h-2 rounded-full bg-primary ring-2 ring-card" />
+   741→                <div className="shrink-0">
+   742→                  {a.actor ? (
+   743→                    <Avatar
+   744→                      name={a.actor.name}
+   745→                      url={a.actor.avatarUrl}
+   746→                      size={24}
+   747→                    />
+   748→                  ) : (
+   749→                    <div className="w-6 h-6 rounded-full bg-muted grid place-items-center">
+   750→                      <ActivityIcon
+   751→                        size={12}
+   752→                        className="text-muted-foreground"
+   753→                      />
+   754→                    </div>
+   755→                  )}
+   756→                </div>
+   757→                <div className="flex-1 min-w-0">
+   758→                  <p className="text-[12px] leading-snug">
+   759→                    <span className="font-medium">
+   760→                      {a.actor?.name || 'System'}
+   761→                    </span>{' '}
+   762→                    <span className="text-muted-foreground">{a.summary}</span>
+   763→                  </p>
+   764→                  <p className="text-[10px] text-muted-foreground mt-0.5">
+   765→                    {relTime(a.createdAt)}
+   766→                  </p>
+   767→                </div>
+   768→              </li>
+   769→            ))}
+   770→          </ol>
+   771→        </div>
+   772→      )}
+   773→    </CardShell>
+   774→  )
+   775→}
+   776→
+   777→// ---------------------------------------------------------------
+   778→// 8. Quick Actions
+   779→// ---------------------------------------------------------------
+   780→function QuickActions() {
+   781→  const openDrawer = useAppStore((s) => s.openDrawer)
+   782→  const navigate = useAppStore((s) => s.navigate)
+   783→
+   784→  const actions: {
+   785→    label: string
+   786→    icon: IconType
+   787→    onClick: () => void
+   788→    accent: string
+   789→  }[] = [
+   790→    {
+   791→      label: 'New Lead',
+   792→      icon: UserPlus,
+   793→      onClick: () => openDrawer('lead-new'),
+   794→      accent: 'var(--chart-1)',
+   795→    },
+   796→    {
+   797→      label: 'New Deal',
+   798→      icon: KanbanSquare,
+   799→      onClick: () => openDrawer('deal-new'),
+   800→      accent: 'var(--chart-2)',
+   801→    },
+   802→    {
+   803→      label: 'Import CSV',
+   804→      icon: Upload,
+   805→      onClick: () => navigate('leads'),
+   806→      accent: 'var(--chart-3)',
+   807→    },
+   808→    {
+   809→      label: 'New Task',
+   810→      icon: ListTodo,
+   811→      onClick: () => openDrawer('task-new'),
+   812→      accent: 'var(--chart-4)',
+   813→    },
+   814→  ]
+   815→
+   816→  return (
+   817→    <CardShell className="p-4">
+   818→      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+   819→        {actions.map((a) => {
+   820→          const Icon = a.icon
+   821→          return (
+   822→            <button
+   823→              key={a.label}
+   824→              onClick={a.onClick}
+   825→              className="group flex items-center gap-3 px-3 py-2.5 rounded-lg border border-border/60 hover:border-border hover:bg-muted/40 transition-all text-left"
+   826→            >
+   827→              <div
+   828→                className="w-9 h-9 rounded-lg grid place-items-center shrink-0 transition-transform group-hover:scale-105"
+   829→                style={{
+   830→                  background: `color-mix(in oklch, ${a.accent} 14%, transparent)`,
+   831→                  color: a.accent,
+   832→                }}
+   833→              >
+   834→                <Icon size={16} />
+   835→              </div>
+   836→              <div className="flex-1 min-w-0">
+   837→                <div className="text-[13px] font-medium truncate">{a.label}</div>
+   838→              </div>
+   839→              <ChevronRight
+   840→                size={14}
+   841→                className="text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0"
+   842→              />
+   843→            </button>
+   844→          )
+   845→        })}
+   846→      </div>
+   847→    </CardShell>
+   848→  )
+   849→}
+   850→
+   851→// ---------------------------------------------------------------
+   852→// Loading skeleton
+   853→// ---------------------------------------------------------------
+   854→/** Skeleton card with a Thinking orb in the top-left, signalling the system is computing this widget's data. */
+   855→function SkeletonWithOrb({ className }: { className: string }) {
+   856→  return (
+   857→    <div className="relative">
+   858→      <Skeleton className={className} />
+   859→      <div className="absolute top-3 left-3 z-10">
+   860→        <ThinkingState compact size="sm" variant="trio" theme="primary" />
+   861→      </div>
+   862→    </div>
+   863→  )
+   864→}
+   865→
+   866→function DashboardSkeleton() {
+   867→  return (
+   868→    <div className="grid grid-cols-12 gap-4 p-4 md:p-6">
+   869→      <div className="col-span-12 grid grid-cols-2 md:grid-cols-4 gap-4">
+   870→        {Array.from({ length: 4 }).map((_, i) => (
+   871→          <SkeletonWithOrb key={i} className="h-[120px] rounded-xl" />
+   872→        ))}
+   873→      </div>
+   874→      <div className="col-span-12">
+   875→        <SkeletonWithOrb className="h-[88px] rounded-xl" />
+   876→      </div>
+   877→      <div className="col-span-12 lg:col-span-8">
+   878→        <SkeletonWithOrb className="h-[340px] rounded-xl" />
+   879→      </div>
+   880→      <div className="col-span-12 lg:col-span-4">
+   881→        <SkeletonWithOrb className="h-[340px] rounded-xl" />
+   882→      </div>
+   883→      <div className="col-span-12 lg:col-span-6">
+   884→        <SkeletonWithOrb className="h-[340px] rounded-xl" />
+   885→      </div>
+   886→      <div className="col-span-12 lg:col-span-6">
+   887→        <SkeletonWithOrb className="h-[340px] rounded-xl" />
+   888→      </div>
+   889→      <div className="col-span-12 lg:col-span-6">
+   890→        <SkeletonWithOrb className="h-[340px] rounded-xl" />
+   891→      </div>
+   892→      <div className="col-span-12 lg:col-span-6">
+   893→        <SkeletonWithOrb className="h-[340px] rounded-xl" />
+   894→      </div>
+   895→    </div>
+   896→  )
+   897→}
+   898→
+   899→// ---------------------------------------------------------------
+   900→// Welcome banner — shown at the top of the dashboard when the workspace is truly fresh
+   901→// (no leads, no deals, no contacts). The rest of the dashboard renders below it.
+   902→// ---------------------------------------------------------------
+   903→function WelcomeBanner() {
+   904→  const openDrawer = useAppStore((s) => s.openDrawer)
+   905→  const navigate = useAppStore((s) => s.navigate)
+   906→  const prefersReduced = useReducedMotion()
+   907→  return (
+   908→    <motion.div
+   909→      variants={item}
+   910→      className={cn(
+   911→        'col-span-12 relative overflow-hidden rounded-xl border border-border/60 bg-card p-5 md:p-6 shadow-soft',
+   912→        prefersReduced ? '' : 'hover:shadow-glow transition-shadow duration-300'
+   913→      )}
+   914→    >
+   915→      {/* subtle background flourish */}
+   916→      <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-primary/5 blur-3xl pointer-events-none" />
+   917→      <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+   918→        <div className="min-w-0">
+   919→          <div className="flex items-center gap-2 mb-1.5">
+   920→            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-semibold uppercase tracking-wide">
+   921→              <Sparkles size={11} /> New workspace
+   922→            </span>
+   923→          </div>
+   924→          <h2 className="text-[18px] md:text-[20px] font-semibold tracking-tight">
+   925→            Welcome to Venom CRM 👋
+   926→          </h2>
+   927→          <p className="text-[13px] text-muted-foreground mt-1 max-w-xl">
+   928→            Get started by creating your first lead or importing a CSV. Your dashboard will populate as you add data.
+   929→          </p>
+   930→        </div>
+   931→        <div className="flex flex-wrap items-center gap-2 shrink-0">
+   932→          <Button onClick={() => openDrawer('lead-new')}>
+   933→            <UserPlus size={14} /> Create Lead
+   934→          </Button>
+   935→          <Button variant="outline" onClick={() => navigate('leads')}>
+   936→            <Upload size={14} /> Import CSV
+   937→          </Button>
+   938→        </div>
+   939→      </div>
+   940→    </motion.div>
+   941→  )
+   942→}
+   943→
+   944→// ---------------------------------------------------------------
+   945→// Main DashboardView
+   946→// ---------------------------------------------------------------
+   947→export function DashboardView() {
+   948→  const { data: raw, isLoading, refetch } = useDashboard()
+   949→  const data = raw as DashboardData | undefined
+   950→  const { startSequence } = useThinkingTask()
+   951→  const [isRefreshing, setIsRefreshing] = React.useState(false)
+   952→
+   953→  const handleRefresh = React.useCallback(async () => {
+   954→    if (isRefreshing) return
+   955→    setIsRefreshing(true)
+   956→    const seqPromise = startSequence(
+   957→      ['Refreshing charts…', 'Recomputing KPIs…', 'Updating dashboard…'],
+   958→      { duration: 800, variant: 'trio', size: 'sm', priority: 'background' },
+   959→    )
+   960→    try {
+   961→      await Promise.all([refetch(), seqPromise])
+   962→    } finally {
+   963→      setIsRefreshing(false)
+   964→    }
+   965→  }, [refetch, startSequence, isRefreshing])
+   966→
+   967→  if (isLoading) return <DashboardSkeleton />
+   968→
+   969→  // Safe defaults so the dashboard always renders structure (even with no data).
+   970→  const ZERO_METRICS: DashboardMetrics = {
+   971→    revenue: 0, pipelineValue: 0, weightedPipeline: 0,
+   972→    dealCount: 0, wonDeals: 0, lostDeals: 0, openDeals: 0,
+   973→    leadCount: 0, contactCount: 0, avgDealSize: 0,
+   974→    conversionRate: 0, wonRate: 0,
+   975→  }
+   976→  const m: DashboardMetrics = data?.metrics ?? ZERO_METRICS
+   977→  const monthly = data?.monthly ?? []
+   978→  const leadSources = data?.leadSources ?? []
+   979→  const pipelines = data?.pipelines ?? []
+   980→  const upcomingTasks = data?.upcomingTasks ?? []
+   981→  const recentLeads = data?.recentLeads ?? []
+   982→  const activities = data?.activities ?? []
+   983→
+   984→  // Truly fresh workspace — no leads, deals, or contacts at all.
+   985→  const isFresh = m.leadCount === 0 && m.dealCount === 0 && m.contactCount === 0
+   986→
+   987→  const kpis = [
+   988→    {
+   989→      label: 'Revenue',
+   990→      value: money(m.revenue),
+   991→      delta: m.revenue > 0 ? '+12.4%' : null,
+   992→      deltaPositive: true,
+   993→      icon: DollarSign,
+   994→      accent: 'var(--chart-2)',
+   995→      muted: m.revenue === 0,
+   996→    },
+   997→    {
+   998→      label: 'Pipeline Value',
+   999→      value: money(m.pipelineValue),
+  1000→      delta: m.pipelineValue > 0 ? '+8.1%' : null,
+  1001→      deltaPositive: true,
+  1002→      icon: TrendingUp,
+  1003→      accent: 'var(--chart-1)',
+  1004→      muted: m.pipelineValue === 0,
+  1005→    },
+  1006→    {
+  1007→      label: 'Open Deals',
+  1008→      value: String(m.openDeals ?? 0),
+  1009→      delta: (m.openDeals ?? 0) > 0 ? '+3' : null,
+  1010→      deltaPositive: true,
+  1011→      icon: Target,
+  1012→      accent: 'var(--chart-4)',
+  1013→      muted: (m.openDeals ?? 0) === 0,
+  1014→    },
+  1015→    {
+  1016→      label: 'Conversion Rate',
+  1017→      value: `${m.conversionRate ?? 0}%`,
+  1018→      delta: (m.conversionRate ?? 0) > 0 ? '-1.2%' : null,
+  1019→      deltaPositive: false,
+  1020→      icon: Percent,
+  1021→      accent: 'var(--chart-5)',
+  1022→      muted: (m.conversionRate ?? 0) === 0,
+  1023→    },
+  1024→  ]
+  1025→
+  1026→  // True when there's no revenue or pipeline data to chart.
+  1027→  const revenueChartEmpty = m.revenue === 0 && m.pipelineValue === 0
+  1028→
+  1029→  return (
+  1030→    <div className="relative">
+  1031→    <motion.div
+  1032→      variants={container}
+  1033→      initial="hidden"
+  1034→      animate="show"
+  1035→      className="grid grid-cols-12 gap-4 p-4 md:p-6"
+  1036→    >
+  1037→      {/* Welcome banner — only for truly fresh workspaces */}
+  1038→      {isFresh && <WelcomeBanner />}
+  1039→
+  1040→      {/* KPI strip */}
+  1041→      <motion.div
+  1042→        variants={item}
+  1043→        className="col-span-12 grid grid-cols-2 md:grid-cols-4 gap-4"
+  1044→      >
+  1045→        {kpis.map((k) => (
+  1046→          <KpiCard key={k.label} {...k} />
+  1047→        ))}
+  1048→      </motion.div>
+  1049→
+  1050→      {/* Quick actions */}
+  1051→      <motion.div variants={item} className="col-span-12">
+  1052→        <QuickActions />
+  1053→      </motion.div>
+  1054→
+  1055→      {/* Revenue chart */}
+  1056→      <motion.div variants={item} className="col-span-12 lg:col-span-8">
+  1057→        <RevenueChart data={monthly} isEmpty={revenueChartEmpty} />
+  1058→      </motion.div>
+  1059→
+  1060→      {/* Lead sources donut */}
+  1061→      <motion.div variants={item} className="col-span-12 lg:col-span-4">
+  1062→        <LeadSourcesDonut
+  1063→          data={leadSources}
+  1064→          total={m.leadCount ?? 0}
+  1065→        />
+  1066→      </motion.div>
+  1067→
+  1068→      {/* Pipeline overview */}
+  1069→      <motion.div variants={item} className="col-span-12 lg:col-span-6">
+  1070→        <PipelineOverview pipelines={pipelines} />
+  1071→      </motion.div>
+  1072→
+  1073→      {/* Upcoming tasks */}
+  1074→      <motion.div variants={item} className="col-span-12 lg:col-span-6">
+  1075→        <TasksList tasks={upcomingTasks} />
+  1076→      </motion.div>
+  1077→
+  1078→      {/* Recent leads */}
+  1079→      <motion.div variants={item} className="col-span-12 lg:col-span-6">
+  1080→        <RecentLeadsList leads={recentLeads} />
+  1081→      </motion.div>
+  1082→
+  1083→      {/* Activity feed */}
+  1084→      <motion.div variants={item} className="col-span-12 lg:col-span-6">
+  1085→        <ActivityFeed activities={activities} />
+  1086→      </motion.div>
+  1087→    </motion.div>
+  1088→
+  1089→      {/* Floating refresh button — triggers a brief thinking sequence */}
+  1090→      <div className="absolute top-4 right-4 md:top-6 md:right-6 z-30 flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-lg p-1 pr-2 shadow-soft border border-border/40">
+  1091→        {isRefreshing && <ThinkingState compact size="xs" variant="pulse" />}
+  1092→        <Button
+  1093→          variant="outline"
+  1094→          size="sm"
+  1095→          onClick={handleRefresh}
+  1096→          disabled={isRefreshing}
+  1097→          className="h-8 gap-1.5"
+  1098→        >
+  1099→          <RotateCcw size={13} className={isRefreshing ? 'animate-spin' : ''} />
+  1100→          <span className="text-[12px]">Refresh</span>
+  1101→        </Button>
+  1102→      </div>
+  1103→    </div>
+  1104→  )
+  1105→}
+  1106→

@@ -99,6 +99,7 @@ import {
   TooltipContent,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { AppContentContainer } from '@/components/crm/shell/app-content-container'
 import type {
   Workspace,
   Membership,
@@ -2628,7 +2629,7 @@ export function SettingsView() {
   const [section, setSection] = React.useState<SectionKey>('workspace')
 
   return (
-    <div className="p-4 md:p-6 view-enter">
+    <AppContentContainer preset="standard">
       <div className="flex flex-col md:flex-row gap-5">
         <SettingsSidebar active={section} onSelect={setSection} />
         <div className="flex-1 min-w-0">
@@ -2657,6 +2658,6 @@ export function SettingsView() {
           </AnimatePresence>
         </div>
       </div>
-    </div>
+    </AppContentContainer>
   )
 }

@@ -38,6 +38,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { AppContentContainer } from '@/components/crm/shell/app-content-container'
 import { toast } from 'sonner'
 import { ThinkingState } from '@/components/crm/thinking'
 import { simulateAIThinking } from '@/lib/ai-sim'
@@ -2191,16 +2192,19 @@ export function AutomationsView() {
 
   if (isLoading) {
     return (
-      <div className="h-[calc(100vh-3.5rem)] view-enter">
-        <AutomationsSkeleton />
-      </div>
+      <AppContentContainer preset="extrawide" flushVertical flushHorizontal>
+        <div className="h-[calc(100vh-3.5rem)]">
+          <AutomationsSkeleton />
+        </div>
+      </AppContentContainer>
     )
   }
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] flex view-enter">
-      {/* Left pane */}
-      <aside className="w-[280px] shrink-0 border-r border-border/60 bg-card/30 p-3 overflow-y-auto scroll-area">
+    <AppContentContainer preset="extrawide" flushVertical flushHorizontal>
+      <div className="h-[calc(100vh-3.5rem)] flex">
+        {/* Left pane */}
+        <aside className="w-[280px] shrink-0 border-r border-border/60 bg-card/30 p-3 overflow-y-auto scroll-area">
         <AutomationList
           automations={automations}
           selectedId={selectedId}
@@ -2216,7 +2220,8 @@ export function AutomationsView() {
         ) : (
           <AutomationsEmptyState onNew={handleNew} onUseTemplate={handleUseTemplate} />
         )}
+        </div>
       </div>
-    </div>
+    </AppContentContainer>
   )
 }

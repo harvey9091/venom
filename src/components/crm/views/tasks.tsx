@@ -97,6 +97,7 @@ import {
 } from '@tanstack/react-table'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { AppContentContainer } from '@/components/crm/shell/app-content-container'
 import type { Task, TaskStatus, TaskPriority, Membership, Tag } from '@/lib/types'
 import {
   Plus,
@@ -1439,7 +1440,7 @@ export function TasksView() {
   }, [tasks, debouncedQ, statusFilter, priorityFilter, assigneeFilter])
 
   return (
-    <div className="p-4 md:p-6 view-enter">
+    <AppContentContainer preset="standard">
       <HeaderStrip
         count={filtered.length}
         q={q}
@@ -1516,6 +1517,6 @@ export function TasksView() {
       ) : (
         <TasksTable tasks={filtered} />
       )}
-    </div>
+    </AppContentContainer>
   )
 }

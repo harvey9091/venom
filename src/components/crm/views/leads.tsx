@@ -82,6 +82,7 @@ import { motion, useReducedMotion, AnimatePresence } from 'framer-motion'
 import { ThinkingState, useThinkingTask, useThinkingStore } from '@/components/crm/thinking'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { AppContentContainer } from '@/components/crm/shell/app-content-container'
 import type { Lead, LeadStatus, Membership } from '@/lib/types'
 import {
   Plus,
@@ -1422,7 +1423,7 @@ export function LeadsView() {
     : { initial: { opacity: 0, y: 4 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.18 } }
 
   return (
-    <div className="p-4 md:p-5 view-enter">
+    <AppContentContainer preset="wide">
       <HeaderStrip
         count={filtered.length}
         q={q}
@@ -1503,6 +1504,6 @@ export function LeadsView() {
       </Tabs>
 
       <ImportCsvDialog open={importOpen} onOpenChange={setImportOpen} />
-    </div>
+    </AppContentContainer>
   )
 }

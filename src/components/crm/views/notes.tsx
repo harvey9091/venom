@@ -27,6 +27,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { AppContentContainer } from '@/components/crm/shell/app-content-container'
 import type { Note } from '@/lib/types'
 import {
   Plus,
@@ -299,7 +300,7 @@ export function NotesView() {
   }, [notes, pinnedOnly, debouncedQ])
 
   return (
-    <div className="p-4 md:p-6 view-enter">
+    <AppContentContainer preset="compact">
       <HeaderStrip
         count={filtered.length}
         q={q}
@@ -336,6 +337,6 @@ export function NotesView() {
           ))}
         </div>
       )}
-    </div>
+    </AppContentContainer>
   )
 }

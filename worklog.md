@@ -1306,3 +1306,64 @@ Final: **0 errors, 1 warning** ✅ (`bunx eslint src/components/crm/views/tasks.
 - When adding a NEW settings section: wrap it in `<SettingsLayout title="…" description="…" actions={…?}>`. If it has loading/empty early returns, wrap those too so the header is always present.
 - `IntegrationsSection` (line ~1854) is the ONLY remaining section using the old pattern — leave it alone until the rebuild task picks it up.
 - The `SettingsLayout` component itself (lines 297-314) is the single source of truth for the header + spacing — edit it there to change the look of every section at once.
+
+---
+
+## Task ID: venom-phase5-container — Wrap all 8 Venom CRM views in `AppContentContainer`
+
+**Agent:** full-stack-developer
+**Task:** Phase 5 layout system — every view renders inside `AppContentContainer` with a semantic width preset
+**Date:** 2025
+
+### Work Log
+
+1. Read the required context:
+   - `/home/z/my-project/worklog.md` (build history — confirmed Phase 4 SettingsLayout was the immediately prior task)
+   - `/home/z/my-project/src/components/crm/shell/app-content-container.tsx` — confirmed props: `preset`, `children`, `className`, `flushVertical?`, `flushHorizontal?`. Renders a `div` with `maxWidth` from CSS variables (`--content-width-compact`/`-standard`/`-wide`/`-extrawide`), `margin: 0 auto`, responsive horizontal padding from `--page-horizontal-padding`, vertical padding from `--page-vertical-padding` (skipped when flush). Adds `view-enter` to its own `className` via `cn('view-enter', className)`.
+
+2. Wrapped all 8 views with the correct preset using only `Edit`/`MultiEdit`:
+
+   | View | Preset | Notes |
+   |---|---|---|
+   | `dashboard.tsx` | `standard` | `className="relative"` forwarded to container so the absolute refresh button keeps its positioned ancestor; `p-4 md:p-6` removed from inner `grid grid-cols-12 gap-4` |
+   | `leads.tsx` | `wide` | Replaced `<div className="p-4 md:p-5 view-enter">` (note: was `p-5`, now unified via container's CSS var padding) |
+   | `deals.tsx` | `wide` | Replaced `<div className="p-4 md:p-6 view-enter">` |
+   | `pipeline.tsx` | `wide` | Replaced `<div className="p-4 md:p-6 view-enter">` |
+   | `tasks.tsx` | `standard` | Replaced `<div className="p-4 md:p-6 view-enter">` |
+   | `notes.tsx` | `compact` | Replaced `<div className="p-4 md:p-6 view-enter">` |
+   | `automations.tsx` | `extrawide` | `flushVertical flushHorizontal` — editor manages its own internal spacing. Wrapped BOTH the loading-skeleton branch and the main editor branch. Removed `view-enter` from the inner `<div className="h-[calc(100vh-3.5rem)] flex view-enter">` (container adds it itself) |
+   | `settings.tsx` | `standard` | Replaced `<div className="p-4 md:p-6 view-enter">`; kept inner `<div className="flex flex-col md:flex-row gap-5">` untouched |
+
+3. For each file added the import: `import { AppContentContainer } from '@/components/crm/shell/app-content-container'` immediately after `import { cn } from '@/lib/utils'`.
+
+4. Inner content (cards, grids, forms, drawers, tables, dialogs, sub-components) was preserved verbatim — only the outer wrapper changed.
+
+5. Ran `bunx eslint` on all 8 files. **Result: 0 errors, 2 warnings — both pre-existing and not caused by these changes:**
+   - `deals.tsx:368:17` — `react-hooks/incompatible-library` warning about TanStack Table `useReactTable()` (pre-existing, untouched code).
+   - `tasks.tsx:672:17` — same TanStack Table warning (pre-existing, untouched code).
+
+### Decisions
+
+- **`flushVertical flushHorizontal` on automations**: the automation editor is a full-viewport-height canvas app. Applying `--page-horizontal-padding` would have shrunk the usable canvas width and broken the editor's `h-[calc(100vh-3.5rem)]` math (which assumes the editor fills its parent). The `extrawide` preset's 1640px max-width still applies via `maxWidth`, so the editor centers correctly on wide screens, but with zero internal padding — the editor manages its own gaps.
+- **Wrapped the loading skeleton branch in automations too**: without wrapping, the loading skeleton would render edge-to-edge while the loaded editor renders centered at 1640px — causing a visible horizontal jump when data resolves. Wrapping both branches keeps the layout stable.
+- **Moved `relative` to AppContentContainer's `className` on dashboard**: the dashboard's refresh button is `absolute top-4 right-4` and needs a positioned ancestor. `AppContentContainer` accepts `className` and merges it via `cn()` — passing `className="relative"` makes the container itself the positioned ancestor.
+- **Removed `view-enter` from inner wrappers**: `AppContentContainer` already adds `view-enter` to its own root `div` via `cn('view-enter', className)`. Leaving it on an inner div would have applied the entrance animation twice — harmless but redundant.
+
+### Files Changed
+
+- `src/components/crm/views/dashboard.tsx`
+- `src/components/crm/views/leads.tsx`
+- `src/components/crm/views/deals.tsx`
+- `src/components/crm/views/pipeline.tsx`
+- `src/components/crm/views/tasks.tsx`
+- `src/components/crm/views/notes.tsx`
+- `src/components/crm/views/automations.tsx`
+- `src/components/crm/views/settings.tsx`
+
+### Notes for Future Agents
+
+- **Do NOT add `p-4`, `p-6`, `md:p-6`, or `view-enter` to the outer wrapper of any view.** `AppContentContainer` handles all of these via CSS variables and its own `cn()` call.
+- **The 5 valid presets are** `compact` (1320px), `standard` (1450px), `wide` (1560px), `extrawide` (1640px), `full` (100%). Don't invent new ones — extend `PRESET_MAX_WIDTH` in `app-content-container.tsx` if a new width is needed.
+- **`flushVertical` and `flushHorizontal` are for canvas / full-bleed pages only** (currently only `automations.tsx`). Regular content pages should keep the default padding so their content aligns with the rest of the app.
+- **The `className` prop on `AppContentContainer` is for positioning context** (e.g. `relative` for absolutely-positioned children), not for padding or width — those come from the preset.
+- **Adding a new view**: pick a preset (most likely `standard` or `wide`), wrap the outer return in `<AppContentContainer preset="…">`, never add hardcoded padding. Look at `tasks.tsx` or `deals.tsx` as the canonical example.

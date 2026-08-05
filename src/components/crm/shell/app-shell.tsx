@@ -214,6 +214,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const routeView = useAppStore((s) => s.route.view)
   const prefersReduced = useReducedMotion()
   const [mounted, setMounted] = useState(false)
+
+  // Sync data-nav-mode on <html> so CSS layout tokens respond (Phase 5).
+  // When dock mode is active, --page-horizontal-padding amplifies via globals.css.
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-nav-mode', navMode)
+    }
+  }, [navMode])
+
   useEffect(() => {
     // Defer to next tick to avoid "setState in effect" lint error while still
     // gating SSR-incompatible client-only logic (nav preference from localStorage).
@@ -227,14 +236,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen bg-background text-foreground">
       {/* Only ONE nav mode rendered at a time */}
       {!useDock && <Sidebar />}
-      <motion.div
-        className={cn('flex-1 flex flex-col min-w-0', useDock && 'pb-20 md:pb-0')}
-        animate={{
-          maxWidth: useDock ? 1600 : '100%',
-        }}
-        transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-        style={{ margin: useDock ? '0 auto' : undefined }}
-      >
+      <div className={cn('flex-1 flex flex-col min-w-0', useDock && 'pb-20 md:pb-0')}>
         <TopBar />
         <main className="flex-1 min-w-0 overflow-x-hidden">
           <AnimatePresence mode="wait">
@@ -244,13 +246,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               animate={{ opacity: 1, y: 0 }}
               exit={prefersReduced ? undefined : { opacity: 0, y: -4 }}
               transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="view-enter"
             >
               {children}
             </motion.div>
           </AnimatePresence>
         </main>
-      </motion.div>
+      </div>
       {useDock && <VenomFloatingDock />}
       <CommandPalette />
       <NotificationsInbox />

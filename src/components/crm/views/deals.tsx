@@ -65,6 +65,7 @@ import {
 } from '@tanstack/react-table'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { AppContentContainer } from '@/components/crm/shell/app-content-container'
 import type { Deal, Pipeline, Stage } from '@/lib/types'
 import {
   Plus,
@@ -572,7 +573,7 @@ export function DealsView() {
   const isLoading = dealsLoading || pipelinesLoading
 
   return (
-    <div className="p-4 md:p-6 view-enter">
+    <AppContentContainer preset="wide">
       <HeaderStrip
         count={filtered.length}
         q={q}
@@ -606,6 +607,6 @@ export function DealsView() {
       ) : (
         <DealsTable deals={filtered} pipelines={pipelines} />
       )}
-    </div>
+    </AppContentContainer>
   )
 }

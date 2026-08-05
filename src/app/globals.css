@@ -414,6 +414,66 @@ body {
 [data-density="comfortable"] { --density-pad: 0.75rem; --density-gap: 0.75rem; --density-text: 0.875rem; }
 [data-density="spacious"] { --density-pad: 1.25rem; --density-gap: 1.25rem; --density-text: 0.9375rem; }
 
+/* ============================================================
+   Phase 5 — Global Layout Tokens
+   Every page inherits these. No duplicated spacing values.
+   The app NEVER stretches edge-to-edge on desktop.
+   Wrapped in @layer base so Tailwind 4 includes them in the output.
+   ============================================================ */
+@layer base {
+  :root {
+    /* Semantic content-width presets (px) */
+    --content-width-compact: 1320px;   /* Notes — narrow, focused */
+    --content-width-standard: 1450px;  /* Dashboard, Tasks, Settings — medium */
+    --content-width-wide: 1560px;      /* Leads, Deals, Pipeline — wide tables */
+    --content-width-extrawide: 1640px; /* Automations — widest, canvas-heavy */
+    --content-width-canvas: 100%;      /* Full-bleed canvas only */
+
+    /* Page horizontal padding (responsive) */
+    --page-horizontal-padding: 1rem;
+    --page-horizontal-padding-md: 1.5rem;
+    --page-horizontal-padding-lg: 2rem;
+    --page-horizontal-padding-xl: 2.5rem;
+
+    /* Vertical padding */
+    --page-vertical-padding: 1rem;
+    --page-vertical-padding-md: 1.5rem;
+
+    /* Floating Dock mode: extra side breathing room */
+    --dock-side-margin: 3rem;
+    --dock-side-margin-xl: 5rem;
+  }
+
+  @media (min-width: 768px) {
+    :root {
+      --page-horizontal-padding: var(--page-horizontal-padding-md);
+      --page-vertical-padding: var(--page-vertical-padding-md);
+    }
+  }
+  @media (min-width: 1024px) {
+    :root { --page-horizontal-padding: var(--page-horizontal-padding-lg); }
+  }
+  @media (min-width: 1536px) {
+    :root { --page-horizontal-padding: var(--page-horizontal-padding-xl); }
+  }
+
+  /* When Floating Dock mode is active, amplify the side whitespace */
+  [data-nav-mode="dock"] {
+    --page-horizontal-padding: 1.5rem;
+    --dock-side-margin: 3rem;
+  }
+  @media (min-width: 1024px) {
+    [data-nav-mode="dock"] { --page-horizontal-padding: 3rem; }
+  }
+  @media (min-width: 1920px) {
+    [data-nav-mode="dock"] {
+      --page-horizontal-padding: 4rem;
+      --dock-side-margin: 6rem;
+    }
+  }
+}
+
+
 /* Glass effect — derives from theme background, never hardcoded */
 .glass {
   background: var(--glass-bg);

@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { ThinkingState } from '@/components/crm/thinking'
 import { useThinkingTask } from '@/lib/thinking'
 import { cn } from '@/lib/utils'
+import { AppContentContainer } from '@/components/crm/shell/app-content-container'
 import { motion, useReducedMotion, type Variants } from 'framer-motion'
 import {
   Area,
@@ -1027,12 +1028,12 @@ export function DashboardView() {
   const revenueChartEmpty = m.revenue === 0 && m.pipelineValue === 0
 
   return (
-    <div className="relative">
+    <AppContentContainer preset="standard" className="relative">
     <motion.div
       variants={container}
       initial="hidden"
       animate="show"
-      className="grid grid-cols-12 gap-4 p-4 md:p-6"
+      className="grid grid-cols-12 gap-4"
     >
       {/* Welcome banner — only for truly fresh workspaces */}
       {isFresh && <WelcomeBanner />}
@@ -1100,6 +1101,6 @@ export function DashboardView() {
           <span className="text-[12px]">Refresh</span>
         </Button>
       </div>
-    </div>
+    </AppContentContainer>
   )
 }
