@@ -1,0 +1,813 @@
+     1→'use client'
+     2→
+     3→/**
+     4→ * Pulse CRM — Pipeline Kanban view
+     5→ *
+     6→ * Layout:
+     7→ *   ┌─ Header ──────────────────────────────────────────────────┐
+     8→ *   │  Pipeline selector │ title │ Add stage │ + New deal        │
+     9→ *   ├─ Kanban board (horizontal scroll) ─────────────────────────┤
+    10→ *   │  ┌─ Stage column ─┐  ┌─ Stage column ─┐  …  ┌─ Add stage ─┐│
+    11→ *   │  │ • Name • count │  │ • Name • count │     │ + button    ││
+    12→ *   │  │ • total value  │  │ • total value  │     │  (expands)  ││
+    13→ *   │  │ ┌─ Deal card ─┐│  │ ┌─ Deal card ─┐│     └─────────────┘│
+    14→ *   │  │ │ title       ││  │ │ title       ││                     │
+    15→ *   │  │ │ $amount     ││  │ │ $amount     ││                     │
+    16→ *   │  │ │ prob bar    ││  │ │ prob bar    ││                     │
+    17→ *   │  │ └─────────────┘│  │ └─────────────┘│                     │
+    18→ *   │  └────────────────┘  └────────────────┘                     │
+    19→ *   ├─ Forecasting panel ────────────────────────────────────────┤
+    20→ *   │  Total pipeline value │ Weighted │ Win rate │ Stages bar    │
+    21→ *   └─────────────────────────────────────────────────────────────┘
+    22→ *
+    23→ * Drag-and-drop uses @dnd-kit/core + @dnd-kit/sortable.
+    24→ *   • Cross-column drop → update deal.stageId (+ probability from stage)
+    25→ *   • Same-column drop → visual reorder only (local state, no API call)
+    26→ */
+    27→
+    28→import * as React from 'react'
+    29→import { motion } from 'framer-motion'
+    30→import {
+    31→  DndContext,
+    32→  DragOverlay,
+    33→  PointerSensor,
+    34→  KeyboardSensor,
+    35→  useSensor,
+    36→  useSensors,
+    37→  closestCorners,
+    38→  useDroppable,
+    39→  DragStartEvent,
+    40→  DragEndEvent,
+    41→} from '@dnd-kit/core'
+    42→import {
+    43→  SortableContext,
+    44→  useSortable,
+    45→  arrayMove,
+    46→  verticalListSortingStrategy,
+    47→  sortableKeyboardCoordinates,
+    48→} from '@dnd-kit/sortable'
+    49→import { CSS } from '@dnd-kit/utilities'
+    50→import { usePipelines, usePipelineMutations, useDeals, useDealMutations } from '@/lib/hooks'
+    51→import { useAppStore } from '@/lib/store'
+    52→import { Avatar, money, relTime, EmptyState } from '@/components/crm/shared'
+    53→import { Button } from '@/components/ui/button'
+    54→import { Input } from '@/components/ui/input'
+    55→import { Label } from '@/components/ui/label'
+    56→import { Skeleton } from '@/components/ui/skeleton'
+    57→import {
+    58→  Select,
+    59→  SelectTrigger,
+    60→  SelectValue,
+    61→  SelectContent,
+    62→  SelectItem,
+    63→} from '@/components/ui/select'
+    64→import { toast } from 'sonner'
+    65→import { cn } from '@/lib/utils'
+    66→import type { Deal, Pipeline, Stage } from '@/lib/types'
+    67→import {
+    68→  Plus,
+    69→  CalendarClock,
+    70→  TrendingUp,
+    71→  PieChart,
+    72→  Target,
+    73→  X,
+    74→  Check,
+    75→  GripVertical,
+    76→  KanbanSquare,
+    77→  ArrowLeftRight,
+    78→} from 'lucide-react'
+    79→
+    80→// ----------------------------------------------------------------
+    81→// Constants
+    82→// ----------------------------------------------------------------
+    83→
+    84→/** Preset color palette for the new-stage picker. */
+    85→const STAGE_COLORS = [
+    86→  '#64748b', // slate
+    87→  '#0ea5e9', // sky
+    88→  '#8b5cf6', // violet
+    89→  '#ec4899', // pink
+    90→  '#f59e0b', // amber
+    91→  '#10b981', // emerald
+    92→  '#ef4444', // red
+    93→  '#14b8a6', // teal
+    94→]
+    95→
+    96→// ----------------------------------------------------------------
+    97→// Helpers
+    98→// ----------------------------------------------------------------
+    99→
+   100→/** Sum of deal amounts (only open deals — stage not won/lost). */
+   101→function totalOpenValue(deals: Deal[]): number {
+   102→  return deals
+   103→    .filter((d) => !d.stage?.isWon && !d.stage?.isLost)
+   104→    .reduce((sum, d) => sum + (d.amount || 0), 0)
+   105→}
+   106→
+   107→/** Weighted pipeline = sum(amount × probability / 100) for open deals. */
+   108→function weightedValue(deals: Deal[]): number {
+   109→  return deals
+   110→    .filter((d) => !d.stage?.isWon && !d.stage?.isLost)
+   111→    .reduce((sum, d) => sum + (d.amount || 0) * ((d.probability || 0) / 100), 0)
+   112→}
+   113→
+   114→/** Win rate = won / (won + lost) × 100. */
+   115→function winRate(deals: Deal[]): number {
+   116→  const won = deals.filter((d) => d.closeReason === 'won' || d.stage?.isWon).length
+   117→  const lost = deals.filter((d) => d.closeReason === 'lost' || d.stage?.isLost).length
+   118→  const closed = won + lost
+   119→  if (closed === 0) return 0
+   120→  return Math.round((won / closed) * 100)
+   121→}
+   122→
+   123→/** Group deals by stageId, preserving stage order. */
+   124→function groupDealsByStage(deals: Deal[], stages: Stage[]): Record<string, Deal[]> {
+   125→  const map: Record<string, Deal[]> = {}
+   126→  stages.forEach((s) => (map[s.id] = []))
+   127→  deals.forEach((d) => {
+   128→    if (map[d.stageId]) map[d.stageId].push(d)
+   129→    else if (d.stage) {
+   130→      // stage exists in deal but not in pipeline.stages — bucket under stage.id
+   131→      map[d.stage.id] = map[d.stage.id] || []
+   132→      map[d.stage.id].push(d)
+   133→    }
+   134→  })
+   135→  return map
+   136→}
+   137→
+   138→// ----------------------------------------------------------------
+   139→// Draggable deal card (board)
+   140→// ----------------------------------------------------------------
+   141→
+   142→function DealCard({ deal, isOverlay }: { deal: Deal; isOverlay?: boolean }) {
+   143→  const openDrawer = useAppStore((s) => s.openDrawer)
+   144→  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+   145→    id: deal.id,
+   146→    data: { type: 'deal', stageId: deal.stageId },
+   147→  })
+   148→
+   149→  const style: React.CSSProperties = {
+   150→    transform: CSS.Transform.toString(transform),
+   151→    transition,
+   152→  }
+   153→
+   154→  // When this card is the active drag source, hide it (the DragOverlay shows the clone).
+   155→  if (isDragging && !isOverlay) {
+   156→    return (
+   157→      <div
+   158→        ref={setNodeRef}
+   159→        style={style}
+   160→        className="rounded-xl border border-dashed border-border/40 bg-muted/20 h-[112px]"
+   161→        aria-hidden
+   162→      />
+   163→    )
+   164→  }
+   165→
+   166→  const prob = Math.max(0, Math.min(100, deal.probability || 0))
+   167→  const probColor = prob >= 70 ? 'bg-emerald-500' : prob >= 40 ? 'bg-amber-500' : 'bg-slate-400'
+   168→  const companyName = deal.company?.name
+   169→  const avatarName = companyName || deal.title
+   170→
+   171→  return (
+   172→    <div
+   173→      ref={!isOverlay ? setNodeRef : undefined}
+   174→      style={!isOverlay ? style : undefined}
+   175→      className={cn(
+   176→        'group card-premium bg-card border border-border p-3 shadow-soft',
+   177→        'rounded-xl hover:shadow-premium hover:-translate-y-0.5 transition-all',
+   178→        'cursor-grab active:cursor-grabbing select-none',
+   179→        isOverlay && 'rotate-2 scale-105 shadow-premium ring-2 ring-primary/40'
+   180→      )}
+   181→      onClick={() => !isOverlay && openDrawer('deal', deal.id)}
+   182→      {...(!isOverlay ? attributes : {})}
+   183→      {...(!isOverlay ? listeners : {})}
+   184→    >
+   185→      <div className="flex items-start justify-between gap-2">
+   186→        <div className="text-[13px] font-medium leading-snug truncate flex-1">{deal.title}</div>
+   187→        <GripVertical className="size-3.5 text-muted-foreground/40 group-hover:text-muted-foreground/80 transition-colors shrink-0" />
+   188→      </div>
+   189→      <div className="mt-2 flex items-center gap-1.5">
+   190→        <Avatar name={avatarName} url={deal.company?.logoUrl} size={18} />
+   191→        <span className="text-[11px] text-muted-foreground truncate">{companyName || '—'}</span>
+   192→      </div>
+   193→      <div className="mt-2 flex items-end justify-between gap-2">
+   194→        <div className="text-[16px] font-semibold tabular-nums leading-none">
+   195→          {money(deal.amount || 0, deal.currency || 'USD')}
+   196→        </div>
+   197→        {deal.owner && (
+   198→          <Avatar name={deal.owner.name} url={deal.owner.avatarUrl} size={20} />
+   199→        )}
+   200→      </div>
+   201→      <div className="mt-2.5 flex items-center gap-2">
+   202→        <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
+   203→          <div className={cn('h-full rounded-full transition-all', probColor)} style={{ width: `${prob}%` }} />
+   204→        </div>
+   205→        <span className="text-[10px] tabular-nums text-muted-foreground">{prob}%</span>
+   206→      </div>
+   207→      {deal.expectedClose && (
+   208→        <div className="mt-2 flex items-center gap-1 text-[10px] text-muted-foreground">
+   209→          <CalendarClock className="size-3" />
+   210→          <span>Closes {relTime(deal.expectedClose)}</span>
+   211→        </div>
+   212→      )}
+   213→    </div>
+   214→  )
+   215→}
+   216→
+   217→// ----------------------------------------------------------------
+   218→// Droppable column body (so empty columns accept drops)
+   219→// ----------------------------------------------------------------
+   220→
+   221→function ColumnBody({
+   222→  stageId,
+   223→  deals,
+   224→  children,
+   225→}: {
+   226→  stageId: string
+   227→  deals: Deal[]
+   228→  children: React.ReactNode
+   229→}) {
+   230→  const { setNodeRef, isOver } = useDroppable({
+   231→    id: `col-${stageId}`,
+   232→    data: { type: 'column', stageId },
+   233→  })
+   234→
+   235→  return (
+   236→    <div
+   237→      ref={setNodeRef}
+   238→      className={cn(
+   239→        'flex-1 p-2 space-y-2 overflow-y-auto scroll-area max-h-[calc(100vh-280px)] min-h-[140px] rounded-b-xl transition-colors',
+   240→        isOver && 'bg-primary/5'
+   241→      )}
+   242→    >
+   243→      {deals.length === 0 && (
+   244→        <div className="h-24 rounded-lg border border-dashed border-border/50 grid place-items-center text-[11px] text-muted-foreground">
+   245→          Drop deals here
+   246→        </div>
+   247→      )}
+   248→      {children}
+   249→    </div>
+   250→  )
+   251→}
+   252→
+   253→// ----------------------------------------------------------------
+   254→// Stage column
+   255→// ----------------------------------------------------------------
+   256→
+   257→function StageColumn({
+   258→  stage,
+   259→  deals,
+   260→  index,
+   261→}: {
+   262→  stage: Stage
+   263→  deals: Deal[]
+   264→  index: number
+   265→}) {
+   266→  const total = deals.reduce((sum, d) => sum + (d.amount || 0), 0)
+   267→  return (
+   268→    <motion.div
+   269→      initial={{ opacity: 0, y: 8 }}
+   270→      animate={{ opacity: 1, y: 0 }}
+   271→      transition={{ duration: 0.18, delay: index * 0.04 }}
+   272→      className="w-[300px] shrink-0 bg-muted/30 rounded-xl p-2 flex flex-col border border-border/60"
+   273→    >
+   274→      <div className="px-2 pt-1.5 pb-2 flex items-center justify-between">
+   275→        <div className="flex items-center gap-2 min-w-0">
+   276→          <span
+   277→            className="w-2.5 h-2.5 rounded-full shrink-0"
+   278→            style={{ background: stage.color }}
+   279→          />
+   280→          <span className="text-[12px] font-semibold truncate">{stage.name}</span>
+   281→          <span className="text-[10px] tabular-nums text-muted-foreground bg-background px-1.5 py-0.5 rounded shrink-0">
+   282→            {deals.length}
+   283→          </span>
+   284→        </div>
+   285→        {total > 0 && (
+   286→          <span className="text-[11px] tabular-nums font-medium text-muted-foreground shrink-0">
+   287→            {money(total)}
+   288→          </span>
+   289→        )}
+   290→      </div>
+   291→      <SortableContext items={deals.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+   292→        <ColumnBody stageId={stage.id} deals={deals}>
+   293→          {deals.map((d) => (
+   294→            <DealCard key={d.id} deal={d} />
+   295→          ))}
+   296→        </ColumnBody>
+   297→      </SortableContext>
+   298→    </motion.div>
+   299→  )
+   300→}
+   301→
+   302→// ----------------------------------------------------------------
+   303→// Add-stage inline form
+   304→// ----------------------------------------------------------------
+   305→
+   306→function AddStageCard({
+   307→  onSave,
+   308→  onCancel,
+   309→}: {
+   310→  onSave: (s: { name: string; color: string; probability: number }) => void
+   311→  onCancel: () => void
+   312→}) {
+   313→  const [name, setName] = React.useState('')
+   314→  const [color, setColor] = React.useState(STAGE_COLORS[0])
+   315→  const [probability, setProbability] = React.useState(20)
+   316→
+   317→  const handleSave = () => {
+   318→    const v = name.trim()
+   319→    if (!v) {
+   320→      toast.error('Stage name is required')
+   321→      return
+   322→    }
+   323→    onSave({ name: v, color, probability })
+   324→  }
+   325→
+   326→  return (
+   327→    <motion.div
+   328→      initial={{ opacity: 0, scale: 0.96 }}
+   329→      animate={{ opacity: 1, scale: 1 }}
+   330→      transition={{ duration: 0.16 }}
+   331→      className="w-[300px] shrink-0 bg-card border border-dashed border-primary/40 rounded-xl p-3 space-y-3 shadow-soft"
+   332→    >
+   333→      <div className="flex items-center justify-between">
+   334→        <span className="text-[12px] font-semibold text-primary">New stage</span>
+   335→        <Button variant="ghost" size="icon" className="size-6" onClick={onCancel} aria-label="Cancel">
+   336→          <X className="size-3.5" />
+   337→        </Button>
+   338→      </div>
+   339→      <div className="space-y-1.5">
+   340→        <Label className="text-[11px] text-muted-foreground">Name</Label>
+   341→        <Input
+   342→          autoFocus
+   343→          value={name}
+   344→          onChange={(e) => setName(e.target.value)}
+   345→          onKeyDown={(e) => {
+   346→            if (e.key === 'Enter') handleSave()
+   347→            if (e.key === 'Escape') onCancel()
+   348→          }}
+   349→          placeholder="e.g. Negotiation"
+   350→          className="h-8 text-[12px]"
+   351→        />
+   352→      </div>
+   353→      <div className="space-y-1.5">
+   354→        <Label className="text-[11px] text-muted-foreground">Color</Label>
+   355→        <div className="flex flex-wrap gap-1.5">
+   356→          {STAGE_COLORS.map((c) => (
+   357→            <button
+   358→              key={c}
+   359→              type="button"
+   360→              onClick={() => setColor(c)}
+   361→              className={cn(
+   362→                'size-6 rounded-full transition-all',
+   363→                color === c ? 'ring-2 ring-offset-2 ring-offset-background ring-foreground scale-110' : 'hover:scale-110'
+   364→              )}
+   365→              style={{ background: c }}
+   366→              aria-label={`Color ${c}`}
+   367→            />
+   368→          ))}
+   369→        </div>
+   370→      </div>
+   371→      <div className="space-y-1.5">
+   372→        <div className="flex items-center justify-between">
+   373→          <Label className="text-[11px] text-muted-foreground">Default probability</Label>
+   374→          <span className="text-[11px] tabular-nums font-medium">{probability}%</span>
+   375→        </div>
+   376→        <input
+   377→          type="range"
+   378→          min={0}
+   379→          max={100}
+   380→          step={5}
+   381→          value={probability}
+   382→          onChange={(e) => setProbability(Number(e.target.value))}
+   383→          className="w-full accent-primary h-1.5 cursor-pointer"
+   384→        />
+   385→      </div>
+   386→      <div className="flex gap-2 pt-1">
+   387→        <Button size="sm" className="h-8 flex-1 text-[12px]" onClick={handleSave}>
+   388→          <Check className="size-3.5" /> Add stage
+   389→        </Button>
+   390→      </div>
+   391→    </motion.div>
+   392→  )
+   393→}
+   394→
+   395→// ----------------------------------------------------------------
+   396→// Kanban board (DnD)
+   397→// ----------------------------------------------------------------
+   398→
+   399→function KanbanBoard({
+   400→  pipeline,
+   401→  deals,
+   402→}: {
+   403→  pipeline: Pipeline
+   404→  deals: Deal[]
+   405→}) {
+   406→  const { update } = useDealMutations()
+   407→  const [activeId, setActiveId] = React.useState<string | null>(null)
+   408→  // Local ordering — kept in sync with `deals` from the query, but reordered locally
+   409→  // on same-column drops so we don't trigger a refetch.
+   410→  const [localDeals, setLocalDeals] = React.useState<Deal[]>(deals)
+   411→
+   412→  React.useEffect(() => {
+   413→    setLocalDeals(deals)
+   414→  }, [deals])
+   415→
+   416→  const sensors = useSensors(
+   417→    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+   418→    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+   419→  )
+   420→
+   421→  const stages = pipeline.stages
+   422→  const grouped = React.useMemo(() => groupDealsByStage(localDeals, stages), [localDeals, stages])
+   423→
+   424→  const activeDeal = activeId ? localDeals.find((d) => d.id === activeId) : null
+   425→
+   426→  const handleDragStart = (e: DragStartEvent) => {
+   427→    setActiveId(String(e.active.id))
+   428→  }
+   429→
+   430→  const handleDragEnd = (e: DragEndEvent) => {
+   431→    setActiveId(null)
+   432→    const { active, over } = e
+   433→    if (!over) return
+   434→
+   435→    const activeDealId = String(active.id)
+   436→    const draggedDeal = localDeals.find((d) => d.id === activeDealId)
+   437→    if (!draggedDeal) return
+   438→
+   439→    // Determine the target stageId.
+   440→    // `over.data.current.stageId` is set on the column droppable; cards carry stageId too.
+   441→    let targetStageId: string | undefined =
+   442→      (over.data.current as any)?.stageId as string | undefined
+   443→    if (!targetStageId && typeof over.id === 'string' && over.id.startsWith('col-')) {
+   444→      targetStageId = over.id.slice(4)
+   445→    }
+   446→    if (!targetStageId) {
+   447→      // Dropped over another card → use that card's stage.
+   448→      const overDeal = localDeals.find((d) => d.id === String(over.id))
+   449→      if (overDeal) targetStageId = overDeal.stageId
+   450→    }
+   451→    if (!targetStageId) return
+   452→
+   453→    const sameStage = targetStageId === draggedDeal.stageId
+   454→
+   455→    if (sameStage) {
+   456→      // Same column → visual reorder only (no API call per task spec).
+   457→      const stageDeals = grouped[targetStageId] || []
+   458→      const oldIndex = stageDeals.findIndex((d) => d.id === activeDealId)
+   459→      const newIndex = stageDeals.findIndex((d) => d.id === String(over.id))
+   460→      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return
+   461→      const reordered = arrayMove(stageDeals, oldIndex, newIndex)
+   462→      // Replace that stage's slice in the full local list.
+   463→      const others = localDeals.filter((d) => d.stageId !== targetStageId)
+   464→      setLocalDeals([...others, ...reordered])
+   465→      return
+   466→    }
+   467→
+   468→    // Cross-column → API call to update stageId + new stage's default probability.
+   469→    const newStage = stages.find((s) => s.id === targetStageId)
+   470→    if (!newStage) return
+   471→
+   472→    // Optimistic local update.
+   473→    setLocalDeals((prev) =>
+   474→      prev.map((d) =>
+   475→        d.id === activeDealId
+   476→          ? { ...d, stageId: targetStageId, stage: newStage, probability: newStage.probability }
+   477→          : d
+   478→      )
+   479→    )
+   480→
+   481→    update.mutate(
+   482→      { id: activeDealId, stageId: targetStageId, probability: newStage.probability },
+   483→      {
+   484→        onSuccess: () => toast.success(`Moved to ${newStage.name}`),
+   485→        onError: () => toast.error('Could not move deal'),
+   486→      }
+   487→    )
+   488→  }
+   489→
+   490→  return (
+   491→    <DndContext
+   492→      sensors={sensors}
+   493→      collisionDetection={closestCorners}
+   494→      onDragStart={handleDragStart}
+   495→      onDragEnd={handleDragEnd}
+   496→      onDragCancel={() => setActiveId(null)}
+   497→    >
+   498→      <div className="flex gap-3 overflow-x-auto scroll-area pb-2">
+   499→        {stages.map((s, i) => (
+   500→          <StageColumn
+   501→            key={s.id}
+   502→            stage={s}
+   503→            deals={grouped[s.id] || []}
+   504→            index={i}
+   505→          />
+   506→        ))}
+   507→        <AddStageSlot pipeline={pipeline} />
+   508→      </div>
+   509→      <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
+   510→        {activeDeal ? <DealCard deal={activeDeal} isOverlay /> : null}
+   511→      </DragOverlay>
+   512→    </DndContext>
+   513→  )
+   514→}
+   515→
+   516→/** The "+" tile at the end of the row that expands into AddStageCard. */
+   517→function AddStageSlot({ pipeline }: { pipeline: Pipeline }) {
+   518→  const [adding, setAdding] = React.useState(false)
+   519→  const { update } = usePipelineMutations()
+   520→
+   521→  const handleSave = (s: { name: string; color: string; probability: number }) => {
+   522→    const newStage = {
+   523→      id: `stage-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+   524→      pipelineId: pipeline.id,
+   525→      name: s.name,
+   526→      color: s.color,
+   527→      order: pipeline.stages.length,
+   528→      probability: s.probability,
+   529→      isWon: false,
+   530→      isLost: false,
+   531→    }
+   532→    update.mutate(
+   533→      { id: pipeline.id, stages: [...pipeline.stages, newStage] } as any,
+   534→      {
+   535→        onSuccess: () => {
+   536→          toast.success(`Stage "${s.name}" added`)
+   537→          setAdding(false)
+   538→        },
+   539→        onError: () => toast.error('Could not add stage'),
+   540→      }
+   541→    )
+   542→  }
+   543→
+   544→  if (adding) {
+   545→    return (
+   546→      <AddStageCard onSave={handleSave} onCancel={() => setAdding(false)} />
+   547→    )
+   548→  }
+   549→
+   550→  return (
+   551→    <button
+   552→      onClick={() => setAdding(true)}
+   553→      className="w-[300px] shrink-0 rounded-xl border border-dashed border-border/60 hover:border-primary/40 hover:bg-muted/30 transition-colors grid place-items-center text-muted-foreground hover:text-foreground min-h-[140px]"
+   554→    >
+   555→      <div className="flex flex-col items-center gap-1.5">
+   556→        <div className="size-9 rounded-full bg-muted grid place-items-center">
+   557→          <Plus className="size-4" />
+   558→        </div>
+   559→        <span className="text-[12px] font-medium">Add stage</span>
+   560→      </div>
+   561→    </button>
+   562→  )
+   563→}
+   564→
+   565→// ----------------------------------------------------------------
+   566→// Forecasting panel
+   567→// ----------------------------------------------------------------
+   568→
+   569→function ForecastingPanel({ deals, stages }: { deals: Deal[]; stages: Stage[] }) {
+   570→  const total = totalOpenValue(deals)
+   571→  const weighted = weightedValue(deals)
+   572→  const rate = winRate(deals)
+   573→
+   574→  // Per-stage value for the stacked breakdown bar.
+   575→  const stageStats = stages
+   576→    .map((s) => {
+   577→      const ds = deals.filter((d) => d.stageId === s.id || d.stage?.id === s.id)
+   578→      return {
+   579→        stage: s,
+   580→        value: ds.reduce((sum, d) => sum + (d.amount || 0), 0),
+   581→        count: ds.length,
+   582→      }
+   583→    })
+   584→    .filter((x) => x.value > 0)
+   585→  const totalForBar = stageStats.reduce((sum, x) => sum + x.value, 0) || 1
+   586→
+   587→  return (
+   588→    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5">
+   589→      {/* Total pipeline value */}
+   590→      <div className="card-premium bg-card border border-border/60 rounded-xl p-4 shadow-soft">
+   591→        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+   592→          <TrendingUp className="size-3.5" />
+   593→          Total pipeline
+   594→        </div>
+   595→        <div className="mt-1.5 text-[20px] font-semibold tabular-nums">{money(total)}</div>
+   596→        <div className="mt-1 text-[11px] text-muted-foreground">
+   597→          {deals.filter((d) => !d.stage?.isWon && !d.stage?.isLost).length} open deals
+   598→        </div>
+   599→      </div>
+   600→
+   601→      {/* Weighted pipeline */}
+   602→      <div className="card-premium bg-card border border-border/60 rounded-xl p-4 shadow-soft">
+   603→        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+   604→          <Target className="size-3.5" />
+   605→          Weighted
+   606→        </div>
+   607→        <div className="mt-1.5 text-[20px] font-semibold tabular-nums">{money(weighted)}</div>
+   608→        <div className="mt-1 text-[11px] text-muted-foreground">
+   609→          {total > 0 ? `${Math.round((weighted / total) * 100)}% of total` : '—'}
+   610→        </div>
+   611→      </div>
+   612→
+   613→      {/* Win rate */}
+   614→      <div className="card-premium bg-card border border-border/60 rounded-xl p-4 shadow-soft">
+   615→        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+   616→          <PieChart className="size-3.5" />
+   617→          Win rate
+   618→        </div>
+   619→        <div className="mt-1.5 text-[20px] font-semibold tabular-nums">{rate}%</div>
+   620→        <div className="mt-1 text-[11px] text-muted-foreground">
+   621→          {deals.filter((d) => d.closeReason === 'won' || d.stage?.isWon).length} won ·{' '}
+   622→          {deals.filter((d) => d.closeReason === 'lost' || d.stage?.isLost).length} lost
+   623→        </div>
+   624→      </div>
+   625→
+   626→      {/* Per-stage breakdown bar */}
+   627→      <div className="card-premium bg-card border border-border/60 rounded-xl p-4 shadow-soft">
+   628→        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+   629→          <ArrowLeftRight className="size-3.5" />
+   630→          By stage
+   631→        </div>
+   632→        {stageStats.length === 0 ? (
+   633→          <div className="mt-3 text-[12px] text-muted-foreground">No deal value yet</div>
+   634→        ) : (
+   635→          <>
+   636→            <div className="mt-3 h-3 w-full rounded-full overflow-hidden flex bg-muted">
+   637→              {stageStats.map((x) => (
+   638→                <div
+   639→                  key={x.stage.id}
+   640→                  style={{
+   641→                    background: x.stage.color,
+   642→                    width: `${(x.value / totalForBar) * 100}%`,
+   643→                  }}
+   644→                  title={`${x.stage.name}: ${money(x.value)}`}
+   645→                />
+   646→              ))}
+   647→            </div>
+   648→            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+   649→              {stageStats.map((x) => (
+   650→                <div key={x.stage.id} className="flex items-center gap-1.5 text-[10px]">
+   651→                  <span
+   652→                    className="w-2 h-2 rounded-full"
+   653→                    style={{ background: x.stage.color }}
+   654→                  />
+   655→                  <span className="text-muted-foreground">{x.stage.name}</span>
+   656→                  <span className="tabular-nums font-medium">{money(x.value)}</span>
+   657→                </div>
+   658→              ))}
+   659→            </div>
+   660→          </>
+   661→        )}
+   662→      </div>
+   663→    </div>
+   664→  )
+   665→}
+   666→
+   667→// ----------------------------------------------------------------
+   668→// Loading skeleton
+   669→// ----------------------------------------------------------------
+   670→
+   671→function PipelineSkeleton() {
+   672→  return (
+   673→    <>
+   674→      <div className="flex gap-3 overflow-hidden pb-2">
+   675→        {Array.from({ length: 4 }).map((_, i) => (
+   676→          <div
+   677→            key={i}
+   678→            className="w-[300px] shrink-0 bg-muted/30 rounded-xl border border-border/60 p-2 space-y-2"
+   679→          >
+   680→            <Skeleton className="h-4 w-32 rounded" />
+   681→            <Skeleton className="h-20 w-full rounded-lg" />
+   682→            <Skeleton className="h-20 w-full rounded-lg" />
+   683→          </div>
+   684→        ))}
+   685→      </div>
+   686→      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5">
+   687→        {Array.from({ length: 4 }).map((_, i) => (
+   688→          <Skeleton key={i} className="h-24 w-full rounded-xl" />
+   689→        ))}
+   690→      </div>
+   691→    </>
+   692→  )
+   693→}
+   694→
+   695→// ----------------------------------------------------------------
+   696→// Header
+   697→// ----------------------------------------------------------------
+   698→
+   699→function PipelineHeader({
+   700→  pipelines,
+   701→  selectedId,
+   702→  onSelect,
+   703→  onAddDeal,
+   704→}: {
+   705→  pipelines: Pipeline[]
+   706→  selectedId: string
+   707→  onSelect: (id: string) => void
+   708→  onAddDeal: () => void
+   709→}) {
+   710→  const selected = pipelines.find((p) => p.id === selectedId)
+   711→  return (
+   712→    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+   713→      <div className="flex items-center gap-3 min-w-0">
+   714→        <Select value={selectedId} onValueChange={onSelect}>
+   715→          <SelectTrigger size="sm" className="h-9 w-[200px] text-[13px] font-medium">
+   716→            <SelectValue placeholder="Select pipeline" />
+   717→          </SelectTrigger>
+   718→          <SelectContent>
+   719→            {pipelines.map((p) => (
+   720→              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+   721→            ))}
+   722→          </SelectContent>
+   723→        </Select>
+   724→        {selected?.description && (
+   725→          <span className="text-[12px] text-muted-foreground truncate hidden md:inline">
+   726→            {selected.description}
+   727→          </span>
+   728→        )}
+   729→      </div>
+   730→      <div className="flex items-center gap-2">
+   731→        <Button size="default" className="h-9" onClick={onAddDeal}>
+   732→          <Plus className="size-4" /> New deal
+   733→        </Button>
+   734→      </div>
+   735→    </div>
+   736→  )
+   737→}
+   738→
+   739→// ----------------------------------------------------------------
+   740→// Main view
+   741→// ----------------------------------------------------------------
+   742→
+   743→export function PipelineView() {
+   744→  const openDrawer = useAppStore((s) => s.openDrawer)
+   745→  const { data: pipelines = [], isLoading: pipelinesLoading } = usePipelines() as {
+   746→    data: Pipeline[]
+   747→    isLoading: boolean
+   748→  }
+   749→
+   750→  const [selectedPipelineId, setSelectedPipelineId] = React.useState<string>('')
+   751→
+   752→  // Default to the first pipeline once loaded.
+   753→  React.useEffect(() => {
+   754→    if (!selectedPipelineId && pipelines.length > 0) {
+   755→      // Prefer the default pipeline, else the first.
+   756→      const def = pipelines.find((p) => p.isDefault) || pipelines[0]
+   757→      setSelectedPipelineId(def.id)
+   758→    }
+   759→  }, [pipelines, selectedPipelineId])
+   760→
+   761→  const selectedPipeline = pipelines.find((p) => p.id === selectedPipelineId)
+   762→
+   763→  const { data: deals = [], isLoading: dealsLoading } = useDeals(
+   764→    selectedPipelineId || undefined
+   765→  )
+   766→
+   767→  const isLoading = pipelinesLoading || dealsLoading || !selectedPipeline
+   768→
+   769→  return (
+   770→    <div className="p-4 md:p-6 view-enter">
+   771→      <PipelineHeader
+   772→        pipelines={pipelines}
+   773→        selectedId={selectedPipelineId}
+   774→        onSelect={setSelectedPipelineId}
+   775→        onAddDeal={() => openDrawer('deal-new')}
+   776→      />
+   777→
+   778→      {isLoading ? (
+   779→        <PipelineSkeleton />
+   780→      ) : pipelines.length === 0 ? (
+   781→        <div className="rounded-xl border border-border/60 bg-card shadow-soft">
+   782→          <EmptyState
+   783→            icon={<KanbanSquare className="size-5" />}
+   784→            title="No pipelines yet"
+   785→            hint="Pipelines group your deals by stage. Ask a workspace admin to create one in settings."
+   786→          />
+   787→        </div>
+   788→      ) : !selectedPipeline ? (
+   789→        <div className="rounded-xl border border-border/60 bg-card shadow-soft">
+   790→          <EmptyState
+   791→            icon={<KanbanSquare className="size-5" />}
+   792→            title="Select a pipeline"
+   793→            hint="Pick a pipeline from the dropdown to view its Kanban board."
+   794→          />
+   795→        </div>
+   796→      ) : selectedPipeline.stages.length === 0 ? (
+   797→        <div className="rounded-xl border border-border/60 bg-card shadow-soft">
+   798→          <EmptyState
+   799→            icon={<KanbanSquare className="size-5" />}
+   800→            title="This pipeline has no stages"
+   801→            hint='Use the "Add stage" tile at the end of the board to create your first stage.'
+   802→          />
+   803→        </div>
+   804→      ) : (
+   805→        <>
+   806→          <KanbanBoard pipeline={selectedPipeline} deals={deals} />
+   807→          <ForecastingPanel deals={deals} stages={selectedPipeline.stages} />
+   808→        </>
+   809→      )}
+   810→    </div>
+   811→  )
+   812→}
+   813→

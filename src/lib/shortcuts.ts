@@ -1,0 +1,76 @@
+/**
+ * Global keyboard shortcuts.
+ *   ⌘K / Ctrl+K  — open command palette
+ *   ⌘N          — new (contextual)
+ *   g d / g c / g l / g p / g t / g a  — go to dashboard / companies / leads / pipeline / tasks / automations
+ *   ⌘\          — toggle sidebar
+ *   ⌘/          — show shortcuts help
+ */
+'use client'
+
+import { useEffect } from 'react'
+import { useAppStore } from './store'
+
+export function useKeyboardShortcuts() {
+  const navigate = useAppStore((s) => s.navigate)
+  const setCommandOpen = useAppStore((s) => s.setCommandOpen)
+  const toggleSidebar = useAppStore((s) => s.toggleSidebar)
+  const commandOpen = useAppStore((s) => s.commandOpen)
+
+  useEffect(() => {
+    let gPressed = false
+    let gTimer: ReturnType<typeof setTimeout> | null = null
+
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable
+
+      // ⌘K / Ctrl+K — command palette
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setCommandOpen(!commandOpen)
+        return
+      }
+
+      // ⌘\ — toggle sidebar
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+        e.preventDefault()
+        toggleSidebar()
+        return
+      }
+
+      if (isTyping) return
+
+      // g + key navigation (Linear/Vim style)
+      if (e.key === 'g' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        gPressed = true
+        if (gTimer) clearTimeout(gTimer)
+        gTimer = setTimeout(() => { gPressed = false }, 800)
+        return
+      }
+      if (gPressed) {
+        const map: Record<string, () => void> = {
+          d: () => navigate('dashboard'),
+          c: () => navigate('companies'),
+          o: () => navigate('contacts'),
+          l: () => navigate('leads'),
+          p: () => navigate('pipeline'),
+          t: () => navigate('tasks'),
+          a: () => navigate('calendar'),
+          n: () => navigate('notes'),
+          f: () => navigate('files'),
+          u: () => navigate('automations'),
+          s: () => navigate('settings'),
+        }
+        if (map[e.key]) {
+          e.preventDefault()
+          map[e.key]()
+        }
+        gPressed = false
+        if (gTimer) clearTimeout(gTimer)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [navigate, setCommandOpen, toggleSidebar, commandOpen])
+}

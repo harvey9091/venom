@@ -1,0 +1,814 @@
+     1→'use client'
+     2→
+     3→/**
+     4→ * Pulse CRM — Leads view
+     5→ *
+     6→ * Layout:
+     7→ *   ┌─ Header strip ────────────────────────────────────────┐
+     8→ *   │  Title + count badge │ search │ filters │ + New lead    │
+     9→ *   ├─ Tabs ─────────────────────────────────────────────────┤
+    10→ *   │  Table | Board                                          │
+    11→ *   │  • Table: TanStack Table w/ sortable cols + selection   │
+    12→ *   │  • Board: Kanban grouped by LeadStatus (dnd-kit)        │
+    13→ *   └─────────────────────────────────────────────────────────┘
+    14→ *
+    15→ * Bulk action toolbar appears above the table when rows are selected.
+    16→ * Search input is debounced 300ms.
+    17→ */
+    18→
+    19→import * as React from 'react'
+    20→import { useLeads, useLeadMutations } from '@/lib/hooks'
+    21→import { useAppStore } from '@/lib/store'
+    22→import {
+    23→  Avatar,
+    24→  ScoreBar,
+    25→  StatusDot,
+    26→  money,
+    27→  relTime,
+    28→  EmptyState,
+    29→  TagChip,
+    30→} from '@/components/crm/shared'
+    31→import { Button } from '@/components/ui/button'
+    32→import { Input } from '@/components/ui/input'
+    33→import { Checkbox } from '@/components/ui/checkbox'
+    34→import { Badge } from '@/components/ui/badge'
+    35→import { Skeleton } from '@/components/ui/skeleton'
+    36→import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+    37→import {
+    38→  Select,
+    39→  SelectTrigger,
+    40→  SelectValue,
+    41→  SelectContent,
+    42→  SelectItem,
+    43→} from '@/components/ui/select'
+    44→import {
+    45→  Table,
+    46→  TableHeader,
+    47→  TableBody,
+    48→  TableHead,
+    49→  TableRow,
+    50→  TableCell,
+    51→} from '@/components/ui/table'
+    52→import {
+    53→  DropdownMenu,
+    54→  DropdownMenuTrigger,
+    55→  DropdownMenuContent,
+    56→  DropdownMenuItem,
+    57→  DropdownMenuSeparator,
+    58→} from '@/components/ui/dropdown-menu'
+    59→import {
+    60→  ColumnDef,
+    61→  flexRender,
+    62→  getCoreRowModel,
+    63→  getSortedRowModel,
+    64→  getFilteredRowModel,
+    65→  useReactTable,
+    66→  type SortingState,
+    67→  type RowSelectionState,
+    68→} from '@tanstack/react-table'
+    69→import {
+    70→  DndContext,
+    71→  PointerSensor,
+    72→  useSensor,
+    73→  useSensors,
+    74→  closestCorners,
+    75→  type DragEndEvent,
+    76→} from '@dnd-kit/core'
+    77→import { useSortable, arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+    78→import { CSS } from '@dnd-kit/utilities'
+    79→import { toast } from 'sonner'
+    80→import { cn } from '@/lib/utils'
+    81→import type { Lead, LeadStatus } from '@/lib/types'
+    82→import {
+    83→  Plus,
+    84→  Search,
+    85→  ArrowUpDown,
+    86→  ArrowUp,
+    87→  ArrowDown,
+    88→  MoreHorizontal,
+    89→  Pencil,
+    90→  Trash2,
+    91→  LayoutGrid,
+    92→  Table as TableIcon,
+    93→  UserPlus,
+    94→  Users as UsersIcon,
+    95→  Tag as TagIcon,
+    96→  X,
+    97→  GripVertical,
+    98→} from 'lucide-react'
+    99→
+   100→// ----------------------------------------------------------------
+   101→// Constants
+   102→// ----------------------------------------------------------------
+   103→
+   104→const LEAD_STATUSES: { value: LeadStatus; label: string; accent: string }[] = [
+   105→  { value: 'new', label: 'New', accent: 'bg-slate-400' },
+   106→  { value: 'contacted', label: 'Contacted', accent: 'bg-blue-500' },
+   107→  { value: 'qualified', label: 'Qualified', accent: 'bg-violet-500' },
+   108→  { value: 'unqualified', label: 'Unqualified', accent: 'bg-rose-500' },
+   109→  { value: 'converted', label: 'Converted', accent: 'bg-emerald-500' },
+   110→]
+   111→
+   112→const SOURCES = ['website', 'referral', 'ads', 'cold-outreach', 'event', 'other']
+   113→
+   114→// ----------------------------------------------------------------
+   115→// Helpers
+   116→// ----------------------------------------------------------------
+   117→
+   118→function useDebounced<T>(value: T, delay = 300): T {
+   119→  const [debounced, setDebounced] = React.useState(value)
+   120→  React.useEffect(() => {
+   121→    const t = setTimeout(() => setDebounced(value), delay)
+   122→    return () => clearTimeout(t)
+   123→  }, [value, delay])
+   124→  return debounced
+   125→}
+   126→
+   127→function statusLabel(s: string) {
+   128→  return LEAD_STATUSES.find((x) => x.value === s)?.label || s
+   129→}
+   130→
+   131→// ----------------------------------------------------------------
+   132→// Sortable lead card (board)
+   133→// ----------------------------------------------------------------
+   134→
+   135→function LeadCard({ lead }: { lead: Lead }) {
+   136→  const openDrawer = useAppStore((s) => s.openDrawer)
+   137→  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+   138→    id: lead.id,
+   139→    data: { type: 'lead', status: lead.status },
+   140→  })
+   141→
+   142→  const style: React.CSSProperties = {
+   143→    transform: CSS.Transform.toString(transform),
+   144→    transition,
+   145→  }
+   146→
+   147→  return (
+   148→    <div
+   149→      ref={setNodeRef}
+   150→      style={style}
+   151→      className={cn(
+   152→        'group card-premium bg-card border border-border/60 rounded-lg p-3 shadow-soft cursor-grab active:cursor-grabbing',
+   153→        'hover:-translate-y-px hover:shadow-glow transition-all',
+   154→        isDragging && 'opacity-50 rotate-1 shadow-glow ring-2 ring-primary/30'
+   155→      )}
+   156→      onClick={() => openDrawer('lead', lead.id)}
+   157→      {...attributes}
+   158→      {...listeners}
+   159→    >
+   160→      <div className="flex items-start gap-2.5">
+   161→        <Avatar name={lead.fullName} url={lead.owner?.avatarUrl} size={32} />
+   162→        <div className="flex-1 min-w-0">
+   163→          <div className="flex items-center justify-between gap-2">
+   164→            <div className="text-[13px] font-medium truncate">{lead.fullName}</div>
+   165→            <GripVertical className="size-3.5 text-muted-foreground/40 group-hover:text-muted-foreground/80 transition-colors" />
+   166→          </div>
+   167→          <div className="text-[11px] text-muted-foreground truncate">{lead.email || '—'}</div>
+   168→        </div>
+   169→      </div>
+   170→      <div className="mt-2.5 flex items-center justify-between gap-2">
+   171→        <ScoreBar score={lead.score} />
+   172→        {lead.estimatedValue ? (
+   173→          <span className="text-[11px] tabular-nums font-medium text-foreground/80">
+   174→            {money(lead.estimatedValue)}
+   175→          </span>
+   176→        ) : (
+   177→          <span className="text-[11px] text-muted-foreground">—</span>
+   178→        )}
+   179→      </div>
+   180→      {(lead.company?.name || lead.source) && (
+   181→        <div className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+   182→          {lead.company?.name && <span className="truncate">{lead.company.name}</span>}
+   183→          {lead.company?.name && lead.source && <span>·</span>}
+   184→          {lead.source && <span className="capitalize">{lead.source}</span>}
+   185→        </div>
+   186→      )}
+   187→      {lead.tags && lead.tags.length > 0 && (
+   188→        <div className="mt-2 flex flex-wrap gap-1">
+   189→          {lead.tags.slice(0, 3).map((t) => (
+   190→            <TagChip key={t.id} label={t.name} color={t.color} />
+   191→          ))}
+   192→          {lead.tags.length > 3 && (
+   193→            <span className="text-[10px] text-muted-foreground">+{lead.tags.length - 3}</span>
+   194→          )}
+   195→        </div>
+   196→      )}
+   197→    </div>
+   198→  )
+   199→}
+   200→
+   201→// ----------------------------------------------------------------
+   202→// Board column
+   203→// ----------------------------------------------------------------
+   204→
+   205→function BoardColumn({
+   206→  status,
+   207→  leads,
+   208→  onMove,
+   209→}: {
+   210→  status: { value: LeadStatus; label: string; accent: string }
+   211→  leads: Lead[]
+   212→  onMove: (id: string, status: LeadStatus) => void
+   213→}) {
+   214→  const columnId = `col-${status.value}`
+   215→  return (
+   216→    <div className="flex flex-col min-w-[260px] w-[260px] bg-muted/40 rounded-xl border border-border/60">
+   217→      <div className="px-3 py-2.5 flex items-center justify-between border-b border-border/60">
+   218→        <div className="flex items-center gap-2">
+   219→          <span className={cn('w-2 h-2 rounded-full', status.accent)} />
+   220→          <span className="text-[12px] font-semibold">{status.label}</span>
+   221→          <span className="text-[10px] tabular-nums text-muted-foreground bg-background px-1.5 py-0.5 rounded">
+   222→            {leads.length}
+   223→          </span>
+   224→        </div>
+   225→        <button
+   226→          className="text-muted-foreground hover:text-foreground transition-colors"
+   227→          title="Add lead to this column"
+   228→          onClick={() => onMove('__new__', status.value)}
+   229→        >
+   230→          <Plus className="size-3.5" />
+   231→        </button>
+   232→      </div>
+   233→      <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
+   234→        <div className="flex-1 p-2 space-y-2 overflow-y-auto scroll-area max-h-[calc(100vh-260px)] min-h-[120px]">
+   235→          {leads.length === 0 && (
+   236→            <div className="h-20 rounded-lg border border-dashed border-border/50 grid place-items-center text-[11px] text-muted-foreground">
+   237→              Drop leads here
+   238→            </div>
+   239→          )}
+   240→          {leads.map((l) => (
+   241→            <LeadCard key={l.id} lead={l} />
+   242→          ))}
+   243→        </div>
+   244→      </SortableContext>
+   245→    </div>
+   246→  )
+   247→}
+   248→
+   249→// ----------------------------------------------------------------
+   250→// Table view (TanStack Table)
+   251→// ----------------------------------------------------------------
+   252→
+   253→function ActionsCell({ lead }: { lead: Lead }) {
+   254→  const openDrawer = useAppStore((s) => s.openDrawer)
+   255→  const { remove } = useLeadMutations()
+   256→
+   257→  return (
+   258→    <DropdownMenu>
+   259→      <DropdownMenuTrigger asChild>
+   260→        <Button variant="ghost" size="icon" className="size-7 -mr-1" onClick={(e) => e.stopPropagation()}>
+   261→          <MoreHorizontal className="size-4" />
+   262→        </Button>
+   263→      </DropdownMenuTrigger>
+   264→      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+   265→        <DropdownMenuItem onClick={() => openDrawer('lead', lead.id)}>
+   266→          <Pencil className="size-3.5" /> Edit
+   267→        </DropdownMenuItem>
+   268→        <DropdownMenuSeparator />
+   269→        <DropdownMenuItem
+   270→          variant="destructive"
+   271→          onClick={() => remove.mutate(lead.id)}
+   272→        >
+   273→          <Trash2 className="size-3.5" /> Delete
+   274→        </DropdownMenuItem>
+   275→      </DropdownMenuContent>
+   276→    </DropdownMenu>
+   277→  )
+   278→}
+   279→
+   280→function SortableHeader({ column, children }: { column: any; children: React.ReactNode }) {
+   281→  const sorted = column.getIsSorted()
+   282→  const Icon = sorted === 'asc' ? ArrowUp : sorted === 'desc' ? ArrowDown : ArrowUpDown
+   283→  return (
+   284→    <button
+   285→      className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors text-muted-foreground"
+   286→      onClick={() => column.toggleSorting(sorted === 'asc')}
+   287→    >
+   288→      <span>{children}</span>
+   289→      <Icon className={cn('size-3', sorted ? 'text-foreground' : 'opacity-50')} />
+   290→    </button>
+   291→  )
+   292→}
+   293→
+   294→const columns: ColumnDef<Lead>[] = [
+   295→  {
+   296→    id: 'select',
+   297→    size: 32,
+   298→    header: ({ table }: any) => (
+   299→      <Checkbox
+   300→        checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && 'indeterminate')}
+   301→        onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)}
+   302→        aria-label="Select all"
+   303→      />
+   304→    ),
+   305→    cell: ({ row }: any) => (
+   306→      <Checkbox
+   307→        checked={row.getIsSelected()}
+   308→        onCheckedChange={(v) => row.toggleSelected(!!v)}
+   309→        onClick={(e) => e.stopPropagation()}
+   310→        aria-label="Select row"
+   311→      />
+   312→    ),
+   313→    enableSorting: false,
+   314→    enableHiding: false,
+   315→  },
+   316→  {
+   317→    accessorKey: 'fullName',
+   318→    header: ({ column }: any) => <SortableHeader column={column}>Name</SortableHeader>,
+   319→    cell: ({ row }: any) => {
+   320→      const lead = row.original as Lead
+   321→      return (
+   322→        <div className="flex items-center gap-2.5">
+   323→          <Avatar name={lead.fullName} url={undefined} size={28} />
+   324→          <div className="min-w-0">
+   325→            <div className="text-[13px] font-medium truncate">{lead.fullName}</div>
+   326→            <div className="text-[11px] text-muted-foreground truncate">{lead.email || '—'}</div>
+   327→          </div>
+   328→        </div>
+   329→      )
+   330→    },
+   331→  },
+   332→  {
+   333→    accessorKey: 'email',
+   334→    header: ({ column }: any) => <SortableHeader column={column}>Email</SortableHeader>,
+   335→    cell: ({ row }: any) => (
+   336→      <span className="text-[12px] text-muted-foreground">{row.original.email || '—'}</span>
+   337→    ),
+   338→  },
+   339→  {
+   340→    id: 'company',
+   341→    accessorFn: (r: Lead) => r.company?.name || '',
+   342→    header: ({ column }: any) => <SortableHeader column={column}>Company</SortableHeader>,
+   343→    cell: ({ row }: any) => {
+   344→      const c = (row.original as Lead).company
+   345→      return c ? <span className="text-[12px]">{c.name}</span> : <span className="text-[12px] text-muted-foreground">—</span>
+   346→    },
+   347→  },
+   348→  {
+   349→    accessorKey: 'source',
+   350→    header: 'Source',
+   351→    cell: ({ row }: any) => {
+   352→      const s = row.original.source
+   353→      return s ? (
+   354→        <Badge variant="outline" className="text-[10px] capitalize font-medium">{s}</Badge>
+   355→      ) : (
+   356→        <span className="text-[12px] text-muted-foreground">—</span>
+   357→      )
+   358→    },
+   359→  },
+   360→  {
+   361→    accessorKey: 'score',
+   362→    header: ({ column }: any) => <SortableHeader column={column}>Score</SortableHeader>,
+   363→    cell: ({ row }: any) => <ScoreBar score={row.original.score} />,
+   364→  },
+   365→  {
+   366→    accessorKey: 'status',
+   367→    header: 'Status',
+   368→    cell: ({ row }: any) => {
+   369→      const s = row.original.status as string
+   370→      return (
+   371→        <div className="inline-flex items-center gap-1.5">
+   372→          <StatusDot status={s} />
+   373→          <span className="text-[12px]">{statusLabel(s)}</span>
+   374→        </div>
+   375→      )
+   376→    },
+   377→  },
+   378→  {
+   379→    accessorKey: 'estimatedValue',
+   380→    header: ({ column }: any) => <SortableHeader column={column}>Value</SortableHeader>,
+   381→    cell: ({ row }: any) => {
+   382→      const v = row.original.estimatedValue
+   383→      return v ? (
+   384→        <span className="text-[12px] tabular-nums font-medium">{money(v)}</span>
+   385→      ) : (
+   386→        <span className="text-[12px] text-muted-foreground">—</span>
+   387→      )
+   388→    },
+   389→  },
+   390→  {
+   391→    id: 'owner',
+   392→    accessorFn: (r: Lead) => r.owner?.name || '',
+   393→    header: 'Owner',
+   394→    cell: ({ row }: any) => {
+   395→      const o = (row.original as Lead).owner
+   396→      return o ? (
+   397→        <div className="flex items-center gap-1.5">
+   398→          <Avatar name={o.name} url={o.avatarUrl} size={22} />
+   399→          <span className="text-[12px]">{o.name.split(' ')[0]}</span>
+   400→        </div>
+   401→      ) : (
+   402→        <span className="text-[12px] text-muted-foreground">Unassigned</span>
+   403→      )
+   404→    },
+   405→  },
+   406→  {
+   407→    accessorKey: 'createdAt',
+   408→    header: ({ column }: any) => <SortableHeader column={column}>Created</SortableHeader>,
+   409→    cell: ({ row }: any) => (
+   410→      <span className="text-[11px] text-muted-foreground">{relTime(row.original.createdAt)}</span>
+   411→    ),
+   412→  },
+   413→  {
+   414→    id: 'actions',
+   415→    size: 48,
+   416→    header: () => <span className="sr-only">Actions</span>,
+   417→    cell: ({ row }: any) => <ActionsCell lead={row.original as Lead} />,
+   418→  },
+   419→]
+   420→
+   421→function BulkToolbar({
+   422→  selectedCount,
+   423→  onClear,
+   424→  onDelete,
+   425→}: {
+   426→  selectedCount: number
+   427→  onClear: () => void
+   428→  onDelete: () => void
+   429→}) {
+   430→  return (
+   431→    <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-primary/8 border border-primary/20 shadow-soft">
+   432→      <span className="text-[12px] font-medium">
+   433→        {selectedCount} selected
+   434→      </span>
+   435→      <div className="h-4 w-px bg-border mx-1" />
+   436→      <Button size="sm" variant="ghost" className="h-7 text-[12px]" onClick={() => toast.info('Bulk assign — coming soon')}>
+   437→        <UsersIcon className="size-3.5" /> Assign
+   438→      </Button>
+   439→      <Button size="sm" variant="ghost" className="h-7 text-[12px]" onClick={() => toast.info('Bulk tag — coming soon')}>
+   440→        <TagIcon className="size-3.5" /> Tag
+   441→      </Button>
+   442→      <Button size="sm" variant="ghost" className="h-7 text-[12px] text-destructive hover:text-destructive" onClick={onDelete}>
+   443→        <Trash2 className="size-3.5" /> Delete
+   444→      </Button>
+   445→      <div className="flex-1" />
+   446→      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onClear} aria-label="Clear selection">
+   447→        <X className="size-3.5" />
+   448→      </Button>
+   449→    </div>
+   450→  )
+   451→}
+   452→
+   453→function LeadsTable({ leads }: { leads: Lead[] }) {
+   454→  const openDrawer = useAppStore((s) => s.openDrawer)
+   455→  const { remove } = useLeadMutations()
+   456→  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }])
+   457→  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
+   458→
+   459→  const table = useReactTable({
+   460→    data: leads,
+   461→    columns,
+   462→    state: { sorting, rowSelection },
+   463→    onSortingChange: setSorting,
+   464→    onRowSelectionChange: setRowSelection,
+   465→    getCoreRowModel: getCoreRowModel(),
+   466→    getSortedRowModel: getSortedRowModel(),
+   467→    getFilteredRowModel: getFilteredRowModel(),
+   468→  })
+   469→
+   470→  const selectedRows = table.getSelectedRowModel().rows
+   471→  const selectedCount = selectedRows.length
+   472→
+   473→  const handleBulkDelete = () => {
+   474→    selectedRows.forEach((r) => remove.mutate(r.original.id))
+   475→    setRowSelection({})
+   476→    toast.success(`${selectedCount} lead${selectedCount > 1 ? 's' : ''} deleted`)
+   477→  }
+   478→
+   479→  return (
+   480→    <div>
+   481→      {selectedCount > 0 && (
+   482→        <BulkToolbar
+   483→          selectedCount={selectedCount}
+   484→          onClear={() => setRowSelection({})}
+   485→          onDelete={handleBulkDelete}
+   486→        />
+   487→      )}
+   488→      <div className="rounded-xl border border-border/60 bg-card overflow-hidden shadow-soft">
+   489→        <div className="max-h-[calc(100vh-220px)] overflow-y-auto scroll-area">
+   490→          <Table>
+   491→            <TableHeader className="sticky top-0 z-10 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+   492→              {table.getHeaderGroups().map((hg) => (
+   493→                <TableRow key={hg.id} className="hover:bg-transparent border-border/60">
+   494→                  {hg.headers.map((h) => (
+   495→                    <TableHead
+   496→                      key={h.id}
+   497→                      style={{ width: h.getSize() !== 150 ? h.getSize() : undefined }}
+   498→                      className="text-[11px] uppercase tracking-wide font-semibold text-muted-foreground h-9 px-3"
+   499→                    >
+   500→                      {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
+   501→                    </TableHead>
+   502→                  ))}
+   503→                </TableRow>
+   504→              ))}
+   505→            </TableHeader>
+   506→            <TableBody>
+   507→              {table.getRowModel().rows.length === 0 ? (
+   508→                <TableRow className="hover:bg-transparent">
+   509→                  <TableCell colSpan={columns.length} className="h-32 text-center">
+   510→                    <EmptyState
+   511→                      icon={<UserPlus className="size-5" />}
+   512→                      title="No leads match your filters"
+   513→                      hint="Try adjusting the search query or status filter."
+   514→                    />
+   515→                  </TableCell>
+   516→                </TableRow>
+   517→              ) : (
+   518→                table.getRowModel().rows.map((row) => (
+   519→                  <TableRow
+   520→                    key={row.id}
+   521→                    data-state={row.getIsSelected() ? 'selected' : undefined}
+   522→                    className="cursor-pointer border-border/40 group"
+   523→                    onClick={() => openDrawer('lead', row.original.id)}
+   524→                  >
+   525→                    {row.getVisibleCells().map((cell) => (
+   526→                      <TableCell key={cell.id} className="py-2.5 px-3">
+   527→                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+   528→                      </TableCell>
+   529→                    ))}
+   530→                  </TableRow>
+   531→                ))
+   532→              )}
+   533→            </TableBody>
+   534→          </Table>
+   535→        </div>
+   536→      </div>
+   537→    </div>
+   538→  )
+   539→}
+   540→
+   541→// ----------------------------------------------------------------
+   542→// Board view
+   543→// ----------------------------------------------------------------
+   544→
+   545→function LeadsBoard({ leads }: { leads: Lead[] }) {
+   546→  const { update } = useLeadMutations()
+   547→  const openDrawer = useAppStore((s) => s.openDrawer)
+   548→
+   549→  const sensors = useSensors(
+   550→    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+   551→  )
+   552→
+   553→  const grouped = React.useMemo(() => {
+   554→    const map: Record<LeadStatus, Lead[]> = {
+   555→      new: [],
+   556→      contacted: [],
+   557→      qualified: [],
+   558→      unqualified: [],
+   559→      converted: [],
+   560→    }
+   561→    leads.forEach((l) => map[l.status]?.push(l))
+   562→    return map
+   563→  }, [leads])
+   564→
+   565→  const handleDragEnd = (e: DragEndEvent) => {
+   566→    const { active, over } = e
+   567→    if (!over) return
+   568→    const leadId = String(active.id)
+   569→    const lead = leads.find((l) => l.id === leadId)
+   570→    if (!lead) return
+   571→
+   572→    // Determine target column.
+   573→    // `over.data.current.status` is set by SortableContext items; if dropped on empty
+   574→    // area, fall back to parsing the column id from the over id.
+   575→    let targetStatus: LeadStatus | undefined =
+   576→      (over.data.current as any)?.status as LeadStatus | undefined
+   577→
+   578→    if (!targetStatus && typeof over.id === 'string' && over.id.startsWith('col-')) {
+   579→      targetStatus = over.id.slice(4) as LeadStatus
+   580→    }
+   581→    if (!targetStatus) {
+   582→      // dropped over a lead card — find which column that lead belongs to
+   583→      const overLead = leads.find((l) => l.id === String(over.id))
+   584→      if (overLead) targetStatus = overLead.status
+   585→    }
+   586→
+   587→    if (!targetStatus || targetStatus === lead.status) return
+   588→    update.mutate({ id: leadId, status: targetStatus })
+   589→    toast.success(`Moved to ${statusLabel(targetStatus)}`)
+   590→  }
+   591→
+   592→  const handleMove = (id: string, status: LeadStatus) => {
+   593→    if (id === '__new__') {
+   594→      openDrawer('lead-new')
+   595→      return
+   596→    }
+   597→    update.mutate({ id, status })
+   598→  }
+   599→
+   600→  return (
+   601→    <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
+   602→      <div className="flex gap-3 overflow-x-auto scroll-area pb-2">
+   603→        {LEAD_STATUSES.map((s) => (
+   604→          <BoardColumn
+   605→            key={s.value}
+   606→            status={s}
+   607→            leads={grouped[s.value]}
+   608→            onMove={handleMove}
+   609→          />
+   610→        ))}
+   611→      </div>
+   612→    </DndContext>
+   613→  )
+   614→}
+   615→
+   616→// ----------------------------------------------------------------
+   617→// Loading skeleton
+   618→// ----------------------------------------------------------------
+   619→
+   620→function LeadsSkeleton() {
+   621→  return (
+   622→    <div className="rounded-xl border border-border/60 bg-card overflow-hidden shadow-soft">
+   623→      <div className="max-h-[calc(100vh-220px)] overflow-y-auto scroll-area">
+   624→        <div className="space-y-0">
+   625→          {Array.from({ length: 8 }).map((_, i) => (
+   626→            <div key={i} className="flex items-center gap-3 px-3 py-3 border-b border-border/40">
+   627→              <Skeleton className="size-4 rounded" />
+   628→              <Skeleton className="size-7 rounded-full" />
+   629→              <div className="flex-1 space-y-1.5">
+   630→                <Skeleton className="h-3 w-40 rounded" />
+   631→                <Skeleton className="h-2.5 w-56 rounded" />
+   632→              </div>
+   633→              <Skeleton className="h-3 w-20 rounded" />
+   634→              <Skeleton className="h-3 w-16 rounded" />
+   635→              <Skeleton className="h-3 w-24 rounded" />
+   636→              <Skeleton className="size-7 rounded" />
+   637→            </div>
+   638→          ))}
+   639→        </div>
+   640→      </div>
+   641→    </div>
+   642→  )
+   643→}
+   644→
+   645→// ----------------------------------------------------------------
+   646→// Header strip
+   647→// ----------------------------------------------------------------
+   648→
+   649→function HeaderStrip({
+   650→  count,
+   651→  q,
+   652→  setQ,
+   653→  status,
+   654→  setStatus,
+   655→  source,
+   656→  setSource,
+   657→  owner,
+   658→  setOwner,
+   659→}: {
+   660→  count: number
+   661→  q: string
+   662→  setQ: (v: string) => void
+   663→  status: string
+   664→  setStatus: (v: string) => void
+   665→  source: string
+   666→  setSource: (v: string) => void
+   667→  owner: string
+   668→  setOwner: (v: string) => void
+   669→}) {
+   670→  const openDrawer = useAppStore((s) => s.openDrawer)
+   671→  return (
+   672→    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+   673→      <div className="flex items-center gap-2">
+   674→        <h1 className="text-[18px] font-semibold tracking-tight">Leads</h1>
+   675→        <Badge variant="secondary" className="tabular-nums text-[11px]">{count}</Badge>
+   676→      </div>
+   677→      <div className="flex flex-wrap items-center gap-2">
+   678→        <div className="relative">
+   679→          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+   680→          <Input
+   681→            placeholder="Search leads…"
+   682→            value={q}
+   683→            onChange={(e) => setQ(e.target.value)}
+   684→            className="pl-8 h-9 w-full md:w-[220px] text-[13px]"
+   685→          />
+   686→        </div>
+   687→        <Select value={status} onValueChange={setStatus}>
+   688→          <SelectTrigger size="sm" className="h-9 w-[130px] text-[12px]">
+   689→            <SelectValue placeholder="Status" />
+   690→          </SelectTrigger>
+   691→          <SelectContent>
+   692→            <SelectItem value="all">All statuses</SelectItem>
+   693→            {LEAD_STATUSES.map((s) => (
+   694→              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+   695→            ))}
+   696→          </SelectContent>
+   697→        </Select>
+   698→        <Select value={source} onValueChange={setSource}>
+   699→          <SelectTrigger size="sm" className="h-9 w-[130px] text-[12px]">
+   700→            <SelectValue placeholder="Source" />
+   701→          </SelectTrigger>
+   702→          <SelectContent>
+   703→            <SelectItem value="all">All sources</SelectItem>
+   704→            {SOURCES.map((s) => (
+   705→              <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
+   706→            ))}
+   707→          </SelectContent>
+   708→        </Select>
+   709→        <Select value={owner} onValueChange={setOwner}>
+   710→          <SelectTrigger size="sm" className="h-9 w-[130px] text-[12px]">
+   711→            <SelectValue placeholder="Owner" />
+   712→          </SelectTrigger>
+   713→          <SelectContent>
+   714→            <SelectItem value="all">All owners</SelectItem>
+   715→            <SelectItem value="me">Assigned to me</SelectItem>
+   716→            <SelectItem value="unassigned">Unassigned</SelectItem>
+   717→          </SelectContent>
+   718→        </Select>
+   719→        <Button size="default" className="h-9" onClick={() => openDrawer('lead-new')}>
+   720→          <Plus className="size-4" /> New lead
+   721→        </Button>
+   722→      </div>
+   723→    </div>
+   724→  )
+   725→}
+   726→
+   727→// ----------------------------------------------------------------
+   728→// Main view
+   729→// ----------------------------------------------------------------
+   730→
+   731→export function LeadsView() {
+   732→  const [q, setQ] = React.useState('')
+   733→  const [status, setStatus] = React.useState('all')
+   734→  const [source, setSource] = React.useState('all')
+   735→  const [owner, setOwner] = React.useState('all')
+   736→  const debouncedQ = useDebounced(q, 300)
+   737→
+   738→  const { data: leads = [], isLoading } = useLeads(debouncedQ, status === 'all' ? undefined : status)
+   739→  const user = useAppStore((s) => s.user)
+   740→
+   741→  const filtered = React.useMemo(() => {
+   742→    let list = leads
+   743→    if (source !== 'all') list = list.filter((l) => l.source === source)
+   744→    if (owner === 'me') list = list.filter((l) => l.ownerId === user?.id)
+   745→    else if (owner === 'unassigned') list = list.filter((l) => !l.ownerId)
+   746→    return list
+   747→  }, [leads, source, owner, user?.id])
+   748→
+   749→  return (
+   750→    <div className="p-4 md:p-6 view-enter">
+   751→      <HeaderStrip
+   752→        count={filtered.length}
+   753→        q={q}
+   754→        setQ={setQ}
+   755→        status={status}
+   756→        setStatus={setStatus}
+   757→        source={source}
+   758→        setSource={setSource}
+   759→        owner={owner}
+   760→        setOwner={setOwner}
+   761→      />
+   762→
+   763→      <Tabs defaultValue="table" className="w-full">
+   764→        <TabsList className="mb-3">
+   765→          <TabsTrigger value="table" className="text-[12px] gap-1.5">
+   766→            <TableIcon className="size-3.5" /> Table
+   767→          </TabsTrigger>
+   768→          <TabsTrigger value="board" className="text-[12px] gap-1.5">
+   769→            <LayoutGrid className="size-3.5" /> Board
+   770→          </TabsTrigger>
+   771→        </TabsList>
+   772→
+   773→        <TabsContent value="table">
+   774→          {isLoading ? (
+   775→            <LeadsSkeleton />
+   776→          ) : filtered.length === 0 ? (
+   777→            <div className="rounded-xl border border-border/60 bg-card shadow-soft">
+   778→              <EmptyState
+   779→                icon={<UserPlus className="size-5" />}
+   780→                title="No leads yet"
+   781→                hint="Start capturing interest by creating your first lead. Add details, score it, and track progress through your pipeline."
+   782→                action={
+   783→                  <Button onClick={() => useAppStore.getState().openDrawer('lead-new')}>
+   784→                    <Plus className="size-4" /> New lead
+   785→                  </Button>
+   786→                }
+   787→              />
+   788→            </div>
+   789→          ) : (
+   790→            <LeadsTable leads={filtered} />
+   791→          )}
+   792→        </TabsContent>
+   793→
+   794→        <TabsContent value="board">
+   795→          {isLoading ? (
+   796→            <div className="flex gap-3 overflow-hidden">
+   797→              {LEAD_STATUSES.map((s) => (
+   798→                <div key={s.value} className="min-w-[260px] w-[260px] bg-muted/40 rounded-xl border border-border/60 p-3 space-y-2">
+   799→                  <Skeleton className="h-4 w-24 rounded" />
+   800→                  {Array.from({ length: 2 }).map((_, i) => (
+   801→                    <Skeleton key={i} className="h-20 w-full rounded-lg" />
+   802→                  ))}
+   803→                </div>
+   804→              ))}
+   805→            </div>
+   806→          ) : (
+   807→            <LeadsBoard leads={filtered} />
+   808→          )}
+   809→        </TabsContent>
+   810→      </Tabs>
+   811→    </div>
+   812→  )
+   813→}
+   814→
