@@ -1,6 +1,6 @@
 /**
- * Pulse CRM — Seed Script
- * Populates a single workspace ("Acme Inc.") with users, companies, contacts,
+ * Venom CRM — Seed Script
+ * Populates a single workspace ("Venom CRM") with users, companies, contacts,
  * leads, deals, pipeline, tasks, notes, automations, notifications.
  *
  * Run with:  bun run db:seed
@@ -45,21 +45,21 @@ async function main() {
 
   // --- Users ---
   const users = await Promise.all([
-    db.user.create({ data: { email: 'ava@pulsecrm.app', name: 'Ava Chen', avatarUrl: 'https://i.pravatar.cc/100?img=47', jobTitle: 'Head of Sales' } }),
-    db.user.create({ data: { email: 'noah@pulsecrm.app', name: 'Noah Patel', avatarUrl: 'https://i.pravatar.cc/100?img=12', jobTitle: 'Account Executive' } }),
-    db.user.create({ data: { email: 'mia@pulsecrm.app', name: 'Mia Rossi', avatarUrl: 'https://i.pravatar.cc/100?img=32', jobTitle: 'SDR' } }),
-    db.user.create({ data: { email: 'liam@pulsecrm.app', name: 'Liam Park', avatarUrl: 'https://i.pravatar.cc/100?img=15', jobTitle: 'CS Manager' } }),
-    db.user.create({ data: { email: 'emma@pulsecrm.app', name: 'Emma Brooks', avatarUrl: 'https://i.pravatar.cc/100?img=45', jobTitle: 'Founder' } }),
+    db.user.create({ data: { email: 'ava@venom.crm', name: 'Ava Chen', avatarUrl: 'https://i.pravatar.cc/100?img=47', jobTitle: 'Head of Sales' } }),
+    db.user.create({ data: { email: 'noah@venom.crm', name: 'Noah Patel', avatarUrl: 'https://i.pravatar.cc/100?img=12', jobTitle: 'Account Executive' } }),
+    db.user.create({ data: { email: 'mia@venom.crm', name: 'Mia Rossi', avatarUrl: 'https://i.pravatar.cc/100?img=32', jobTitle: 'SDR' } }),
+    db.user.create({ data: { email: 'liam@venom.crm', name: 'Liam Park', avatarUrl: 'https://i.pravatar.cc/100?img=15', jobTitle: 'CS Manager' } }),
+    db.user.create({ data: { email: 'emma@venom.crm', name: 'Emma Brooks', avatarUrl: 'https://i.pravatar.cc/100?img=45', jobTitle: 'Founder' } }),
   ])
   const [ava, noah, mia, liam, emma] = users
 
   // --- Workspace ---
   const ws = await db.workspace.create({
     data: {
-      slug: 'acme',
-      name: 'Acme Inc.',
-      description: 'Premium sales workspace for Acme Cloud Services',
-      accentColor: '#6366f1',
+      slug: 'venom',
+      name: 'Venom CRM',
+      description: 'Premium sales workspace for Venom CRM',
+      accentColor: '#d4a373',
       plan: 'pro',
     },
   })
@@ -94,14 +94,14 @@ async function main() {
 
   // --- Companies ---
   const companySeeds = [
-    { name: 'Stripe',       domain: 'stripe.com',     industry: 'Fintech',    size: '1000+', revenue: 12_000_000 },
-    { name: 'Linear',       domain: 'linear.app',     industry: 'SaaS',       size: '50-200', revenue: 4_500_000 },
-    { name: 'Notion',       domain: 'notion.so',      industry: 'SaaS',       size: '200+',  revenue: 8_000_000 },
-    { name: 'Vercel',       domain: 'vercel.com',     industry: 'DevTools',   size: '200+',  revenue: 9_800_000 },
-    { name: 'Figma',        domain: 'figma.com',      industry: 'Design',     size: '500+',  revenue: 15_000_000 },
-    { name: 'Loom',         domain: 'loom.com',       industry: 'SaaS',       size: '100+',  revenue: 3_200_000 },
-    { name: 'Cal.com',      domain: 'cal.com',        industry: 'SaaS',       size: '50-200', revenue: 2_000_000 },
-    { name: 'Retool',       domain: 'retool.com',     industry: 'DevTools',   size: '200+',  revenue: 7_500_000 },
+    { name: 'Stripe',       domain: 'stripe.com',     industry: 'Fintech',    size: '1000+', revenue: 99_60_00_000 },
+    { name: 'Linear',       domain: 'linear.app',     industry: 'SaaS',       size: '50-200', revenue: 37_35_00_000 },
+    { name: 'Notion',       domain: 'notion.so',      industry: 'SaaS',       size: '200+',  revenue: 66_40_00_000 },
+    { name: 'Vercel',       domain: 'vercel.com',     industry: 'DevTools',   size: '200+',  revenue: 81_34_00_000 },
+    { name: 'Figma',        domain: 'figma.com',      industry: 'Design',     size: '500+',  revenue: 1_24_50_00_000 },
+    { name: 'Loom',         domain: 'loom.com',       industry: 'SaaS',       size: '100+',  revenue: 26_56_00_000 },
+    { name: 'Cal.com',      domain: 'cal.com',        industry: 'SaaS',       size: '50-200', revenue: 16_60_00_000 },
+    { name: 'Retool',       domain: 'retool.com',     industry: 'DevTools',   size: '200+',  revenue: 62_25_00_000 },
   ]
   const companies = await Promise.all(
     companySeeds.map((c) => db.company.create({
@@ -156,7 +156,7 @@ async function main() {
         source: leadSources[i % leadSources.length],
         status,
         score,
-        estimatedValue: 5_000 + (i * 1500) % 90_000,
+        estimatedValue: 4_15_000 + (i * 1_24_500) % 74_70_000,
         lastActivityAt: daysAgo(i % 14),
         createdAt: daysAgo(30 + (i % 60)),
       },
@@ -176,7 +176,7 @@ async function main() {
     const company = companies[i % companies.length]
     const stage = stages[i % stages.length]
     const owner = owners[i % owners.length]
-    const amount = 8_000 + (i * 3_500) % 120_000
+    const amount = 6_64_000 + (i * 2_90_500) % 99_60_000
     const deal = await db.deal.create({
       data: {
         workspaceId: ws.id,
@@ -276,7 +276,7 @@ async function main() {
     const event = await db.calendarEvent.create({
       data: {
         workspaceId: ws.id,
-        title: eventTitles[i % eventTitles.length] + (i % 2 === 0 ? ' — Acme' : ''),
+        title: eventTitles[i % eventTitles.length] + (i % 2 === 0 ? ' — Venom' : ''),
         type: i % 3 === 0 ? 'call' : 'meeting',
         startAt: start,
         endAt: end,
@@ -422,7 +422,7 @@ async function main() {
         name: `Proposal-${companies[i % companies.length].name}-v${1 + (i % 3)}.pdf`,
         mimeType: 'application/pdf',
         size: 480_000 + (i * 32_000),
-        url: `https://files.pulsecrm.app/proposal-${i}.pdf`,
+        url: `https://files.venom.crm/proposal-${i}.pdf`,
         version: 1 + (i % 3),
       }
     })

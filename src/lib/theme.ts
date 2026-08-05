@@ -16,19 +16,12 @@ export interface ThemePreset {
 }
 
 export const THEME_PRESETS: ThemePreset[] = [
-  { id: 'plane-dark', name: 'Plane Dark', swatch: ['#0e0e16', '#6366f1', '#1c1c2b'], dark: true },
-  { id: 'claude-light', name: 'Claude Light', swatch: ['#f5f0e8', '#c2673a', '#ebe3d6'], dark: false },
   { id: 'claude-dark', name: 'Claude Dark', swatch: ['#2b2723', '#d4a373', '#3a3530'], dark: true },
+  { id: 'claude-light', name: 'Claude Light', swatch: ['#f5f0e8', '#c2673a', '#ebe3d6'], dark: false },
+  { id: 'frosted', name: 'Glass', swatch: ['#e8ecf5', '#5b6ee8', '#d4dcf0'], dark: false },
   { id: 'silver', name: 'Monochrome Silver', swatch: ['#fafafa', '#525252', '#e5e5e5'], dark: false },
-  { id: 'graphite', name: 'Graphite', swatch: ['#1a1a22', '#a3a3b8', '#2a2a35'], dark: true },
   { id: 'midnight', name: 'Midnight Black', swatch: ['#0a0a0a', '#ffffff', '#1a1a1a'], dark: true },
-  { id: 'frosted', name: 'Frosted Glass', swatch: ['#e8ecf5', '#5b6ee8', '#d4dcf0'], dark: false },
-  { id: 'ocean', name: 'Ocean', swatch: ['#eef4fb', '#2563eb', '#dbe7f5'], dark: false },
-  { id: 'emerald', name: 'Emerald', swatch: ['#ecf8f0', '#059669', '#d6efe0'], dark: false },
-  { id: 'indigo', name: 'Indigo', swatch: ['#f3f0fc', '#6d28d9', '#e3dcf6'], dark: false },
-  { id: 'beige', name: 'Warm Beige', swatch: ['#f5efe0', '#a16207', '#ebe1c8'], dark: false },
-  { id: 'dracula', name: 'Dracula', swatch: ['#282a36', '#ff79c6', '#44475a'], dark: true },
-  { id: 'nord', name: 'Nord', swatch: ['#eceff4', '#5e81ac', '#d8dee9'], dark: false },
+  { id: 'graphite', name: 'Graphite', swatch: ['#1a1a22', '#a3a3b8', '#2a2a35'], dark: true },
   { id: 'pure-white', name: 'Pure White', swatch: ['#ffffff', '#171717', '#f5f5f5'], dark: false },
 ]
 
@@ -50,15 +43,15 @@ export interface ThemeConfig {
 }
 
 const DEFAULT_CONFIG: ThemeConfig = {
-  theme: 'plane-dark',
-  accent: '#6366f1',
-  radius: 12,
+  theme: 'claude-dark',
+  accent: '#d4a373',
+  radius: 8,
   font: 'geist',
-  sidebarStyle: 'floating',
-  cardStyle: 'elevated',
-  density: 'comfortable',
+  sidebarStyle: 'inset',
+  cardStyle: 'outlined',
+  density: 'compact',
   glassIntensity: 50,
-  animSpeed: 'normal',
+  animSpeed: 'fast',
 }
 
 interface ThemeStore {

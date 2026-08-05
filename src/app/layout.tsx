@@ -14,10 +14,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pulse CRM — Premium Sales Workspace",
-  description: "A premium, open-source CRM for modern sales teams. Inspired by Plane, Linear, Notion, Attio, and Arc Browser.",
-  keywords: ["CRM", "sales", "pipeline", "leads", "deals", "Plane", "Linear", "Notion"],
-  authors: [{ name: "Pulse CRM" }],
+  title: "Venom CRM — Premium Sales Workspace",
+  description: "Venom CRM — a premium, futuristic, enterprise-grade CRM for modern sales teams. Compact, dense, and built for professionals.",
+  keywords: ["Venom CRM", "CRM", "sales", "pipeline", "leads", "deals", "enterprise"],
+  authors: [{ name: "Venom CRM" }],
   icons: { icon: "/logo.svg" },
 };
 

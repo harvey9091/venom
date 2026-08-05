@@ -970,3 +970,211 @@ Final: **0 errors, 0 warnings** ✅
 - Dev server recompiled successfully after the edits (`✓ Compiled in 1346ms`).
 - All three integrations respect `prefers-reduced-motion` automatically via `<ThinkingState />`'s `useReducedMotion()` check.
 - All thinking states are visual-only; the parent buttons stay disabled during the async operation so the user cannot double-fire, but the rest of the drawer/editor remains fully interactive (the orb never blocks pointer events in `compact` mode).
+
+---
+
+## Task ID: venom-leads — Rebuild the Leads view as the PRIMARY CRM entity (Phase 2 refactor)
+
+**Agent:** full-stack-developer
+**Task:** rewrite `src/components/crm/views/leads.tsx` as a Twenty CRM-inspired compact, dense Leads view with inline-editable status, 9-column Kanban board, and a 4-step CSV import wizard dialog
+**Date:** 2025
+
+### Work Log
+
+1. Read the required context files:
+   - `src/lib/types.ts` (Lead type with `fullName, email, phone, source, status (9 values), score, estimatedValue, expectedClose, ownerId, assignedUserId, lastActivityAt, createdAt, owner, assignedUser, contact, company, convertedDeal`)
+   - `src/lib/hooks.ts` (`useLeads(q, status)`, `useLeadMutations()` → `create/update/remove`, `useSettings('members')`)
+   - `src/lib/store.ts` (`useAppStore` — `navigate`, `openDrawer(type, id)`, `user`, `workspace`)
+   - `src/components/crm/shared.tsx` (`Avatar`, `ScoreBar`, `money` (₹ INR), `relTime`, `EmptyState`; noted `StatusDot` and `TagChip` available but unused for this build)
+   - `src/app/globals.css` (`.venom-table` compact table system with sticky header, hover tint, selected state; `.inline-edit-cell` for inline editing)
+   - `src/components/crm/thinking/index.ts` + `thinking-state.tsx` (`ThinkingState` component, `useThinkingTask().startSequence(labels, opts)`, `useThinkingStore`)
+   - `package.json` (confirmed `@dnd-kit/core ^6.3.1`, `@dnd-kit/sortable ^10.0.0`, `@dnd-kit/utilities ^3.2.2`, `framer-motion ^12.23.2`, `sonner ^2.0.6`, `lucide-react ^0.525.0`)
+   - shadcn UI exports: `popover.tsx` (Popover/Trigger/Content), `dialog.tsx` (Dialog/Header/Title/Content), `radio-group.tsx`, `select.tsx`, `dropdown-menu.tsx`, `tabs.tsx`, `textarea.tsx`, `label.tsx`
+
+### Summary
+
+Completely rewrote `/home/z/my-project/src/components/crm/views/leads.tsx` (~840 lines, `'use client'`), exporting `LeadsView`. Twenty CRM-inspired compact, dense layout. Replaced the old TanStack Table implementation with a hand-built `.venom-table` for tighter density control.
+
+### Architecture
+
+Single file. Module-scope: status catalog (`LEAD_STATUSES` with 9 entries, each carrying `dot` and `pill` Tailwind classes), `STATUS_MAP` lookup, `SOURCES`, `TARGET_FIELDS` (CSV import), `TEMPLATE_CSV` string, pure helpers (`useDebounced`, `parseCSV`, `downloadTemplate`, `autoMatch`).
+
+Component tree:
+- `LeadsView` (root) — state: `q`, `status`, `owner`, `importOpen`, debounced search 250ms. Renders `HeaderStrip` + `Tabs` (Table | Board) + `ImportCsvDialog`. Tab content wrapped in `motion.div` with fade+slide (respects `useReducedMotion`).
+- `HeaderStrip` (h-12 compact) — title + count badge | search (debounced) | status `<Select>` (9 options) | owner `<Select>` (All / Me / Unassigned + each member from `useSettings('members')`) | "Import CSV" outline button | "New Lead" primary button (`openDrawer('lead-new')`).
+- `LeadsTable` — `<table className="venom-table" style={{tableLayout:'fixed'}}>` with `<colgroup>` defining all 13 column widths (32/180/120/140/130/100/90/110/100/80/90/80/40). Sticky header (via `.venom-table thead th` CSS). Sortable headers: name, status, estimatedValue, createdAt, expectedClose, score (manual `sortField`+`sortDir` state, click toggles asc/desc). Row selection via `Set<string>`. Bulk action bar slides in via `AnimatePresence` + `motion.div`.
+- `BulkToolbar` (h-10) — count + Assign (Popover with member list → `update.mutate({id, ownerId})` for each) + Tag (toast) + Delete (`remove.mutate` for each). Clear button.
+- `StatusCell` — inline-editable status pill (Popover). Renders colored pill button → opens Popover with all 9 statuses → on select calls `update.mutate({id, status})` immediately, no save button. Color map: new=slate, contacted=blue, qualified=violet, unqualified=rose, proposal_sent=amber, negotiation=orange, won=emerald, lost=red, archived=gray.
+- `ActionsCell` — ⋮ dropdown (Edit → openDrawer, Delete → remove.mutate).
+- `LeadsBoard` — 9 `BoardColumn`s (one per status). `DndContext` + `PointerSensor` (distance 6) + `closestCorners`. On drag end, determines target status from `over.data.current.status`, falls back to parsing `col-` prefix or finding the over lead's status. Calls `update.mutate({id, status})`.
+- `LeadCard` (board) — compact `p-2.5` card with `useSortable` hook, Avatar (26px) + name + email + ScoreBar + ₹ value + company/source. `GripVertical` on hover.
+- `BoardColumn` — header (status dot + label + count) + scrollable card list (`max-h-[calc(100vh-220px)]`), empty state "Drop here".
+- `LeadsSkeleton` — 10 rows of skeleton (h-9 each) matching table column layout.
+- `ImportCsvDialog` — 4-step wizard inside a `Dialog` (`max-w-2xl`).
+
+### Import CSV wizard (4 steps + importing state)
+
+- **Step 1 (Upload)**: drag-drop zone (drag-over highlight) + "Paste CSV instead" toggle (Textarea) + "Download template" link (downloads `venom-leads-template.csv` with 3 sample rows). On file/paste → `parseCSV` → store headers + dataRows → auto-match headers → step 2.
+- **Step 2 (Map Columns)**: entity type badge "Leads" (fixed, no toggle) + default owner `<Select>` (from members) + mapping table (CSV header → target field `<Select>` with options: Do not import / fullName* / email / phone / source / score / estimatedValue). Auto-matched by name via `autoMatch()` (case-insensitive: "name"→fullName, "e-mail"→email, "mobile"→phone, etc.). "Continue (N valid)" button — disabled if no rows have `fullName`.
+- **Step 3 (Review)**: summary card ("Ready to import N leads" + owner + status) + duplicate handling `RadioGroup` (Skip / Update — UI only, documented). "Start import" button.
+- **Importing**: `ThinkingState` (size lg) showing rotating labels from `useThinkingTask().startSequence([...6 labels...], {duration:600})`. In parallel, iterates `validRows` and calls `create.mutateAsync({...row, status:'new', ownerId})` for each, updating `importedCount` state. Progress counter "N / M leads created" below the orb.
+- **Step 4 (Done)**: emerald check circle + "Imported N leads" + "Import another" (resets wizard) + "View leads" (closes dialog, opens lead-new drawer).
+
+CSV parser (`parseCSV`): minimal RFC-4180 implementation — handles quoted fields, escaped double-quotes (`""`), CRLF line endings, trailing newline. Filters out empty rows.
+
+### Key implementation choices
+
+- **Dropped TanStack Table**: the old `leads.tsx` used `@tanstack/react-table` with the shadcn `<Table>` component. The new build uses a raw `<table className="venom-table">` with `<colgroup>` for exact column widths (32–180px). This gives pixel-precise control over the dense Twenty-style layout and leverages the `.venom-table` CSS (sticky header, hover tint, selected state) from `globals.css`.
+- **Inline-editable status**: `StatusCell` uses a `Popover` (not `Select`) so I can render a custom dropdown with colored dots + check mark on the current status. The pill itself is the trigger. `e.stopPropagation()` on the trigger and content prevents the row click from firing.
+- **Status color map**: 9 statuses each with `dot` (solid bg for the indicator dot) and `pill` (translucent bg + colored text for the pill). All use Tailwind's color palette (slate/blue/violet/rose/amber/orange/emerald/red/gray) with `dark:` variants.
+- **Bulk actions**: `BulkToolbar` slides in via `AnimatePresence` + `motion.div` (y: -6 → 0). Assign opens a `Popover` with member list → calls `update.mutate({id, ownerId})` for each selected. Tag shows an info toast (not fully implemented — would need a tag-attach mutation). Delete calls `remove.mutate` for each + success toast.
+- **Owner filter enhancement**: the old view only had "All / Me / Unassigned". The new view also lists each workspace member (from `useSettings('members')`) as a filterable option.
+- **Board drag-and-drop**: `DndContext` with `PointerSensor` (activation distance 6px to allow click-to-open). On drop, tries three strategies to determine the target status: (1) `over.data.current.status` (set via the column's `data-status` attr), (2) find the over lead's status, (3) parse `col-` prefix from over id. This handles dropping on empty columns, on cards, and on column headers.
+- **Import: hook vs fetch**: the spec said "for each row call `useLeadMutations().create.mutate(...)`". I used `create.mutateAsync(...)` (the async variant) so I can `await` each create and update the progress counter sequentially. The hook's `onSuccess` toast ("Lead created") fires per row — for large imports this is noisy, but it's the spec'd approach. The final `toast.success("Imported N leads")` confirms completion.
+- **Thinking labels**: the 6 rotating labels ("Reading CSV…", "Mapping columns…", "Validating emails…", "Detecting duplicates…", "Importing N leads…", "Finalizing import…") are passed to `startSequence(labels, {duration:600})`. The global store updates the foreground task's label every 600ms. The local `ThinkingState` reads the current label from `useThinkingStore((s) => s.tasks)` and displays it. Total sequence duration: 6 × 600ms = 3.6s. The actual `create.mutateAsync` loop runs in parallel and `await`s the sequence at the end, so the Done step only shows after both finish.
+- **Reduced motion**: `useReducedMotion()` from framer-motion. When true, tab content transitions are disabled (`initial: false`). The `ThinkingState` component also respects reduced motion internally (orb becomes static).
+- **Compact spacing**: `gap-2` (not `gap-4`), `p-2.5` (not `p-4`), `text-[12.5px]` for table body, `text-[11px]` for muted secondary text, `h-8` for header inputs, `h-12` header strip, `h-10` bulk toolbar. Table cells override `.venom-table` padding with `!py-1.5 !px-2` on the checkbox column only (others use the CSS default `8px 10px` which gives ~33px rows).
+- **Phone column**: monospace font (`font-mono`) + tabular-nums for alignment. Visible directly in the table (not hidden behind a drawer) per spec.
+- **Expected Close**: `relTime(lead.expectedClose)` with red text (`text-destructive font-medium`) when the date is in the past.
+- **Money**: all currency uses `money()` which formats ₹ INR with Indian number system (lakh/crore grouping) via `Intl.NumberFormat('en-IN', {style:'currency', currency:'INR'})`.
+
+### Lint status
+
+Final: **0 errors, 0 warnings** ✅ (`bunx eslint src/components/crm/views/leads.tsx` — exit 0)
+
+
+---
+
+## Task ID: venom-lead-drawer — Update Lead Drawer for Venom CRM Phase 2 (new fields + statuses)
+
+**Agent:** full-stack-developer
+**Task:** expand lead drawer with 9-status enum, expectedClose date picker, assignedUserId select, auto-deal banner, linked-deal chip, phone-in-header
+**Date:** 2025
+
+### Work Log
+
+1. Read context files:
+   - `src/lib/types.ts` — confirmed `Lead` now exposes `expectedClose?: string | null`, `assignedUserId?: string | null`, `assignedUser?: User | null`, `convertedDealId?: string | null`, and `LeadStatus` is the 9-value union `new | contacted | qualified | unqualified | proposal_sent | negotiation | won | lost | archived`.
+   - `src/lib/hooks.ts` — confirmed `useLeadMutations` (create/update/remove), `useSettings('members')` returns `Membership[]` (with `m.userId`, `m.user?.name`, `m.user?.email`), and `useAppStore` exposes `openDrawer(type, id)`.
+   - `src/components/crm/views/lead-drawer.tsx` — the target file (813 lines). Read the full file to understand the form schema, `OverviewTab` signature, header layout, and the existing Owner/Company Select pattern.
+   - `src/components/crm/views/deal-drawer.tsx` — referenced for the established Calendar+Popover date-picker pattern (used `format(new Date(field.value), 'MMM d, yyyy')` + `Calendar mode="single"` + a "Clear date" footer button).
+   - `src/components/ui/popover.tsx` + `calendar.tsx` — confirmed the shadcn primitives available.
+   - `src/components/crm/shared.tsx` — confirmed `money()` formats ₹ INR via `Intl.NumberFormat('en-IN', { style:'currency', currency:'INR' })`. The header already calls `money(lead.estimatedValue)` — no change needed for point 10.
+
+2. Used `MultiEdit` (NOT a rewrite) to apply 11 atomic edits to `lead-drawer.tsx`. All edits used theme CSS variables only (`bg-muted/40`, `bg-primary/10`, `text-primary`, `text-muted-foreground`, `border-border/60`, `text-destructive`) — no hardcoded colors.
+
+### Changes
+
+**1. Imports** — added `Popover, PopoverTrigger, PopoverContent` from `@/components/ui/popover`, `Calendar` from `@/components/ui/calendar`, `format` from `date-fns`, and two new lucide icons (`Calendar as CalendarIcon`, `Link2`). The `Sparkles` icon was already imported.
+
+**2. `LEAD_STATUSES` expanded** from 5 → 9 entries: replaced the old `'converted'` entry with the full Venom Phase-2 enum (`proposal_sent` → "Proposal Sent", `negotiation` → "Negotiation", `won` → "Won", `lost` → "Lost", `archived` → "Archived"). Labels are human-readable Title Case.
+
+**3. Zod schema** (`leadSchema`) — added two nullable string fields: `expectedClose: z.string().optional().nullable()` and `assignedUserId: z.string().optional().nullable()`, slotted between `estimatedValue`/`ownerId` and `companyId` to mirror the `Lead` type ordering.
+
+**4. Form default values + `values` prop** — added `expectedClose: null` and `assignedUserId: null` to both the `defaultValues` object (create mode) and the `values` object (edit mode, sourced from `lead.expectedClose ?? null` / `lead.assignedUserId ?? null`). This makes `react-hook-form`'s `values` prop re-sync the form if the lead changes.
+
+**5. PATCH/POST payload** (`handleSubmit`) — added `expectedClose: values.expectedClose ? new Date(values.expectedClose).toISOString() : null` to the payload. The Calendar already stores an ISO string via `field.onChange(d ? d.toISOString() : null)`, but this re-normalises to guarantee a clean ISO on submit. `assignedUserId` flows through via the `...values` spread (it's already a nullable string).
+
+**6. Header phone line** — added a third line below the subtitle (only when editing and `lead.phone` exists): a `Phone` icon (size-3) + the phone number in `text-[12px] text-muted-foreground truncate`. Wrapped in `min-w-0` flex so it truncates cleanly. Placed BEFORE the status/score/value meta row so the visual order is: name → subtitle (email/company) → phone → status/score/value.
+
+**7. `expectedClose` date picker** — added a new field in the "Lead details" card, right next to `estimatedValue`. Restructured the grid: `estimatedValue` is now half-width (removed `col-span-2`) and `expectedClose` occupies the other half. Uses `Popover` + `PopoverTrigger asChild` wrapping a `Button variant="outline"` that shows `CalendarIcon` + either `format(new Date(field.value), 'MMM d, yyyy')` or the muted placeholder "Pick a date". The `PopoverContent` renders the shadcn `Calendar` in `mode="single"` with `initialFocus`, plus a "Clear date" footer button (destructive ghost) that appears only when a date is set. Also updated the `estimatedValue` label from "Estimated value (USD)" → "Estimated value (INR)" to match the new ₹ currency (point 10 alignment).
+
+**8. `assignedUserId` select** — added a new "Assigned User" `Select` in the "Ownership" card, immediately after the "Owner" field. Uses the same `members` data source (`useSettings('members')`) and the same `'unassigned'` sentinel pattern (selecting "Unassigned" stores `null`). To keep the 2-col grid balanced, the "Company" field was promoted to `col-span-2` (full-width second row).
+
+**9. Auto-deal info banner + Linked Deal chip** — added a new block at the very top of the `OverviewTab` (before the first card), only rendered when `leadId` is truthy (i.e. editing, not creating). It's a `rounded-lg border border-border/60 bg-muted/40 p-3` container with a `Sparkles` icon in a `bg-primary/10 text-primary` 6×6 rounded square, followed by the muted-foreground message: "A deal is automatically created when you set an Estimated Value. Deal status syncs with lead status." Below the message, if `convertedDealId` is set, a small "Linked Deal" chip button (Link2 icon + label, `bg-primary/10 text-primary hover:bg-primary/20`) calls `openDrawer('deal', convertedDealId)` on click. `openDrawer` is pulled from `useAppStore` inside `OverviewTab`.
+
+**10. Currency verification** — confirmed the header already uses `money(lead.estimatedValue)` which formats ₹ INR. No code change needed beyond the label fix in #7.
+
+**11. Prop plumbing** — `OverviewTab` now accepts a new optional `convertedDealId?: string | null` prop, passed from the parent as `convertedDealId={lead?.convertedDealId}`.
+
+### Constraints honored
+
+- Used `MultiEdit` only — no file rewrite. 11 atomic edits.
+- `'use client'` was already present (line 1), untouched.
+- Used only existing hooks (`useLeadMutations`, `useSettings`, `useAppStore`).
+- `sonner` for toasts (already imported), `lucide-react` for icons (`Sparkles`, `Calendar as CalendarIcon`, `Link2`, `Phone`).
+- Theme CSS variables only — zero hardcoded colors.
+- shadcn `Calendar` + `Popover` used (not a custom date picker).
+
+### Lint status
+
+Final: **0 errors, 0 warnings** ✅ (`bunx eslint src/components/crm/views/lead-drawer.tsx` — exit 0, no output).
+
+### Note for downstream agents
+
+The Prisma `Lead` table does NOT yet have `expectedClose` / `assignedUserId` columns (visible in `dev.log` Prisma queries — the SELECT lists only the original 16 columns). The frontend now SENDS these fields in the PATCH payload, but they will be silently dropped by the backend until the schema is migrated. This is expected — schema migration is a separate task. The frontend is forward-compatible: once the columns exist, the form will round-trip correctly with no further changes.
+
+---
+
+## Task ID: venom-tasks-calendar — Add Calendar view tab to Tasks page
+
+**Agent:** full-stack-developer
+**Task:** add a third "Calendar" tab (monthly grid grouped by due date) alongside Board + List in the Tasks view
+**Date:** 2025
+
+### Work Log
+
+1. Read context files:
+   - `worklog.md` (confirmed the standard entry template + Venom CRM conventions)
+   - `src/lib/hooks.ts` — confirmed `useTasks()` returns `Task[]` and `useTaskMutations()` exposes `create.mutate(payload, opts)` / `update.mutate({ id, ...patch }, opts)`. `create`'s `onSuccess` receives the created task (`(await r.json()).data`).
+   - `src/lib/types.ts` — confirmed `Task` has `dueDate?: string | null`, `startDate?: string | null`, `priority: TaskPriority` (`'low' | 'medium' | 'high' | 'urgent'`), `status`, `title`, `owner?`, `assignee?`.
+   - `src/lib/store.ts` — confirmed `useAppStore` exposes `openDrawer(type, id)`, `user: User | null`, `workspace: Workspace | null`.
+   - `src/components/crm/views/tasks.tsx` (1011 lines) — read the full file: existing Board (dnd-kit Kanban) + List (TanStack Table) tabs, `TasksSkeleton`, `HeaderStrip`, `TasksView` shell with `view` state typed `'board' | 'list'`.
+   - `src/components/ui/popover.tsx` — confirmed `Popover, PopoverTrigger, PopoverContent` are available (Radix-based).
+   - `dev.log` — confirmed the Task table query includes `dueDate` and `startDate` columns, so the calendar can group by due date out of the box.
+
+2. Used `MultiEdit` (NOT a rewrite) to apply 8 atomic edits to `tasks.tsx`. All edits use theme CSS variables / Tailwind palette classes only — no hardcoded hex colors.
+
+### Changes
+
+**1. Imports** — added `Popover, PopoverTrigger, PopoverContent` from `@/components/ui/popover` and three new lucide icons (`Calendar as CalendarIcon`, `ChevronLeft`, `ChevronRight`). `Plus` and `toast` (sonner) were already imported.
+
+**2. `TasksCalendar` component** (~410 lines, inserted before the Loading-skeleton section). Self-contained monthly-calendar view:
+   - **Constants** — `CAL_WEEKDAYS` (Mon–Sun), `CAL_MONTHS`, and `PRIORITY_CAL` mapping each `TaskPriority` to `{ chip, dot, label }` using translucid Tailwind classes: low=`bg-slate-500/15 text-slate-600 dark:text-slate-300`, medium=`blue`, high=`amber`, urgent=`rose`. Each also has a solid `dot` color for the legend + popover markers.
+   - **Helpers** — `dayKey(d)` builds a local-day `yyyy-mm-dd` key (uses `getFullYear/getMonth/getDate` to avoid UTC off-by-one). `gridStart(viewMonth)` returns the Monday of the week containing day 1 (converts JS `getDay()` Sun=0 to Mon=0 via `(getDay()+6)%7`). `isSameDay` for today detection.
+   - **State** — `viewMonth: Date` (defaults to current month), `dragTaskId` (which chip is being dragged), `dragOverKey` (which cell is the current drop target, for ring highlight).
+   - **Derived** — `today` (memoized local midnight), `start` (memoized grid start), `days` (42-day array), `todayColIndex` (0–6 column of today, or -1 if today is outside the visible grid), `tasksByDay` (`Map<dayKey, Task[]>` sorted by priority rank then by start/due time), `noDue` (tasks with no due date).
+   - **Toolbar** — prev / Today / next outline buttons (`size-8`/`h-8`), month-year label (`CAL_MONTHS[m] yyyy`), and a legend row (`hidden sm:flex`) showing the 4 priority dots + labels. Flex wraps on narrow screens.
+   - **Weekday header** — 7-col grid, Mon–Sun, with the today-column cell tinted `bg-primary/8 text-primary`.
+   - **Day grid** — `grid grid-cols-7 gap-px bg-border/40` (1px gap acts as cell borders). Each cell is `min-h-[100px] p-1.5 bg-card`:
+     - Out-of-month cells get `bg-muted/20`.
+     - Today's column gets `bg-primary/5`.
+     - Drag-over cell gets `bg-primary/10 ring-1 ring-inset ring-primary/40`.
+     - Empty cells get `cursor-pointer hover:bg-muted/40`.
+     - Day number (top-right, `size-5` circle): filled `bg-primary text-primary-foreground` if today, muted if in-month, `muted/40` if out-of-month.
+     - Up to 3 task chips: `draggable` divs, `text-[10.5px]` truncate, priority `chip` bg/text, `border` (transparent normally, `border-rose-500/70` if past-due & not done). Chip click → `e.stopPropagation()` + `openDrawer('task', id)`. Dragged chip gets `opacity-40`.
+     - `+N more` button → `Popover` (align start, `w-64 p-2`) listing all tasks for that day with priority dot + title + priority label (+ "· overdue" if past). Each row click opens the drawer.
+     - Empty-cell `+` affordance: absolutely-centered `Plus` icon, `text-muted-foreground/0` → `group-hover:text-muted-foreground/40`, `pointer-events-none` so clicks reach the cell.
+   - **Cell click (empty only)** → `createOnDay(d)`: builds dueDate at noon local (`new Date(y,m,d,12,0,0).toISOString()` to dodge DST edges), calls `create.mutate({ workspaceId, title:'New task', status:'todo', priority:'medium', dueDate, ownerId: user.id, creatorId: user.id })`. On success → `openDrawer('task', created.id)` + success toast; on error → error toast.
+   - **Drag-and-drop** (native HTML5): chip `onDragStart` sets `dragTaskId` + `dataTransfer` ('text/plain', taskId, effectAllowed 'move'). Cell `onDragOver` calls `preventDefault()` + sets `dropEffect='move'` + updates `dragOverKey`. Cell `onDrop` reads the taskId from `dataTransfer` (falls back to `dragTaskId`), builds the new noon-local ISO dueDate, calls `update.mutate({ id, dueDate })` with success/error toasts. `onDragEnd` clears both drag states.
+   - **No-due-date side panel** (`<aside xl:w-[280px]>`): card with `CalendarIcon` + "No due date" label + count badge. Shows up to 5 tasks (priority dot + title + assignee avatar). If >5, a "View all N" link calls `onSwitchToList` → parent `setView('list')`. Empty state: "All tasks are scheduled." The panel stacks below the grid on screens `< xl`.
+
+**3. `TasksSkeleton`** — widened the `view` param type from `'board' | 'list'` to `'board' | 'list' | 'calendar'` and added a calendar skeleton branch: toolbar placeholder (4 skeletons) + 7×42 skeleton grid (`min-h-[100px] rounded-none bg-card`) + a `xl:w-[280px] h-48` side-panel skeleton.
+
+**4. `TasksView`** — four edits:
+   - `view` state type → `'board' | 'list' | 'calendar'`.
+   - Added a third `TabsTrigger` (`value="calendar"`, `CalendarIcon` + "Calendar") mirroring the Board/List style.
+   - Updated the `onValueChange` cast to `'board' | 'list' | 'calendar'`.
+   - Render branch: added `view === 'calendar' ?` arm rendering `<TasksCalendar tasks={filtered} onSwitchToList={() => setView('list')} />`.
+   - EmptyState guard: changed `filtered.length === 0 ?` to `filtered.length === 0 && view !== 'calendar' ?` so the calendar renders even with zero tasks (lets the user click empty cells to create the first task).
+
+### Constraints honored
+
+- Used `MultiEdit` only — no file rewrite. 8 atomic edits.
+- `'use client'` was already present (line 1), untouched.
+- Used only existing hooks (`useTasks`, `useTaskMutations`, `useAppStore`).
+- `sonner` for toasts (already imported), `lucide-react` for icons (`ChevronLeft`, `ChevronRight`, `Calendar as CalendarIcon`, `Plus` — all newly added).
+- Native HTML5 drag events (`draggable` + `onDragStart` + `onDragOver` + `onDrop`) — no `@dnd-kit` in the calendar (the Board view still uses dnd-kit, untouched).
+- Theme CSS variables + Tailwind palette classes only (`bg-primary/5`, `text-primary`, `bg-card`, `bg-muted/20`, `border-border/60`, priority classes with `dark:` variants). No hardcoded hex.
+- Calendar cells are `min-h-[100px]` (compact, per spec).
+- Responsive: `flex-col xl:flex-row` layout; legend hidden on `< sm`; side panel stacks below grid below `xl`.
+
+### Lint status
+
+Final: **0 errors, 1 warning** ✅ (`bunx eslint src/components/crm/views/tasks.tsx`). The single warning is a pre-existing `react-hooks/incompatible-library` note about TanStack Table's `useReactTable()` at line 671 (inside the existing `TasksTable`, not the new calendar code) — it predates this change.
+
+### Note for downstream agents
+
+- The `Task.dueDate` is stored as an ISO string. The calendar groups by the **local-calendar day** of that timestamp (via `dayKey`), so a task due at 23:00 UTC on Jan 5 will appear on Jan 5 in UTC+ zones but Jan 6 in UTC- zones — this is intentional (displays the day the user experiences the deadline).
+- Newly created tasks (via empty-cell click) get a noon-local dueDate, which round-trips cleanly across timezones.
+- Drag-and-drop reschedule sends a noon-local ISO dueDate (preserves the calendar day regardless of viewer timezone).

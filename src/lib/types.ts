@@ -1,5 +1,5 @@
 /**
- * Pulse CRM — Shared types
+ * Venom CRM — Shared types
  * Mirrors the Prisma schema but simplified for client-side state.
  */
 
@@ -64,7 +64,16 @@ export interface Contact {
   tags?: Tag[]
 }
 
-export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'unqualified' | 'converted'
+export type LeadStatus =
+  | 'new'
+  | 'contacted'
+  | 'qualified'
+  | 'unqualified'
+  | 'proposal_sent'
+  | 'negotiation'
+  | 'won'
+  | 'lost'
+  | 'archived'
 
 export interface Lead {
   id: string
@@ -72,6 +81,7 @@ export interface Lead {
   contactId?: string | null
   companyId?: string | null
   ownerId?: string | null
+  assignedUserId?: string | null
   fullName: string
   email?: string | null
   phone?: string | null
@@ -79,10 +89,13 @@ export interface Lead {
   status: LeadStatus
   score: number
   estimatedValue?: number | null
+  expectedClose?: string | null
+  convertedDealId?: string | null
   createdAt: string
   updatedAt: string
   lastActivityAt?: string | null
   owner?: User | null
+  assignedUser?: User | null
   contact?: Contact | null
   company?: Company | null
   tags?: Tag[]
@@ -325,17 +338,12 @@ export interface AutomationGraph {
 // CRM Views (client-side router)
 export type ViewKey =
   | 'dashboard'
-  | 'companies'
-  | 'contacts'
+  | 'automations'
+  | 'pipeline'
   | 'leads'
   | 'deals'
-  | 'pipeline'
   | 'tasks'
-  | 'calendar'
   | 'notes'
-  | 'files'
-  | 'automations'
-  | 'import'
   | 'settings'
 
 export interface RouteState {

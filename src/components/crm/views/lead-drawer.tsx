@@ -34,6 +34,13 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select'
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from '@/components/ui/popover'
+import { Calendar } from '@/components/ui/calendar'
+import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { Lead, LeadStatus, Membership } from '@/lib/types'
@@ -52,6 +59,8 @@ import {
   Activity as ActivityIcon,
   User as UserIcon,
   Sparkles,
+  Calendar as CalendarIcon,
+  Link2,
 } from 'lucide-react'
 import { ThinkingState } from '@/components/crm/thinking'
 import { simulateAIThinking, mockAIResponse } from '@/lib/ai-sim'
@@ -70,7 +79,11 @@ const LEAD_STATUSES: { value: LeadStatus; label: string }[] = [
   { value: 'contacted', label: 'Contacted' },
   { value: 'qualified', label: 'Qualified' },
   { value: 'unqualified', label: 'Unqualified' },
-  { value: 'converted', label: 'Converted' },
+  { value: 'proposal_sent', label: 'Proposal Sent' },
+  { value: 'negotiation', label: 'Negotiation' },
+  { value: 'won', label: 'Won' },
+  { value: 'lost', label: 'Lost' },
+  { value: 'archived', label: 'Archived' },
 ]
 
 const SOURCES = ['website', 'referral', 'ads', 'cold-outreach', 'event', 'other']
@@ -87,7 +100,9 @@ const leadSchema = z.object({
   status: z.string(),
   score: z.number().min(0).max(100),
   estimatedValue: z.number().optional().nullable(),
+  expectedClose: z.string().optional().nullable(),
   ownerId: z.string().optional().nullable(),
+  assignedUserId: z.string().optional().nullable(),
   companyId: z.string().optional().nullable(),
 })
 
@@ -114,7 +129,9 @@ export function LeadDrawer({ id, mode, onClose }: { id?: string; mode?: 'create'
       status: 'new',
       score: 50,
       estimatedValue: null,
+      expectedClose: null,
       ownerId: null,
+      assignedUserId: null,
       companyId: null,
     },
     values: lead ? {
@@ -125,7 +142,9 @@ export function LeadDrawer({ id, mode, onClose }: { id?: string; mode?: 'create'
       status: lead.status,
       score: lead.score,
       estimatedValue: lead.estimatedValue ?? null,
+      expectedClose: lead.expectedClose ?? null,
       ownerId: lead.ownerId ?? null,
+      assignedUserId: lead.assignedUserId ?? null,
       companyId: lead.companyId ?? null,
     } : undefined,
   })
@@ -147,6 +166,7 @@ export function LeadDrawer({ id, mode, onClose }: { id?: string; mode?: 'create'
     const payload = {
       ...values,
       estimatedValue: values.estimatedValue ? Number(values.estimatedValue) : null,
+      expectedClose: values.expectedClose ? new Date(values.expectedClose).toISOString() : null,
       tags: tags,
     }
     if (isCreate) {
@@ -199,6 +219,12 @@ export function LeadDrawer({ id, mode, onClose }: { id?: string; mode?: 'create'
           <div className="flex-1 min-w-0">
             <div className="text-[15px] font-semibold tracking-tight truncate">{titleName}</div>
             <div className="text-[12px] text-muted-foreground truncate">{subtitle}</div>
+            {!isCreate && lead?.phone && (
+              <div className="mt-0.5 flex items-center gap-1 text-[12px] text-muted-foreground min-w-0">
+                <Phone className="size-3 shrink-0" />
+                <span className="truncate">{lead.phone}</span>
+              </div>
+            )}
             {lead && !isCreate && (
               <div className="mt-1.5 flex items-center gap-3 text-[11px]">
                 <span className="inline-flex items-center gap-1.5">
@@ -251,6 +277,7 @@ export function LeadDrawer({ id, mode, onClose }: { id?: string; mode?: 'create'
             members={members}
             leadId={id}
             leadName={lead?.fullName}
+            convertedDealId={lead?.convertedDealId}
             onScoreUpdate={(score) => {
               if (id) update.mutate({ id, score } as any)
             }}
@@ -297,6 +324,7 @@ function OverviewTab({
   members,
   leadId,
   leadName,
+  convertedDealId,
   onScoreUpdate,
 }: {
   form: ReturnType<typeof useForm<LeadFormValues>>
@@ -309,10 +337,12 @@ function OverviewTab({
   members: Membership[]
   leadId?: string
   leadName?: string
+  convertedDealId?: string | null
   onScoreUpdate?: (score: number) => void
 }) {
   const { register, control, formState: { errors } } = form
   const score = useWatchScore(form)
+  const openDrawer = useAppStore((s) => s.openDrawer)
 
   // AI scoring state — visual-only thinking orb while the mock score runs.
   const [isScoring, setIsScoring] = React.useState(false)
@@ -354,6 +384,28 @@ function OverviewTab({
 
   return (
     <div className="space-y-4">
+      {leadId && (
+        <div className="rounded-lg border border-border/60 bg-muted/40 p-3 flex items-start gap-2.5">
+          <div className="mt-0.5 size-6 rounded-md bg-primary/10 grid place-items-center text-primary shrink-0">
+            <Sparkles className="size-3.5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              A deal is automatically created when you set an Estimated Value. Deal status syncs with lead status.
+            </p>
+            {convertedDealId && (
+              <button
+                type="button"
+                onClick={() => openDrawer('deal', convertedDealId)}
+                className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+              >
+                <Link2 className="size-3" />
+                Linked Deal
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       <div className="card-premium bg-card border border-border/60 rounded-xl p-5 shadow-soft space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2 space-y-1.5">
@@ -478,8 +530,8 @@ function OverviewTab({
               </Collapsible>
             )}
           </div>
-          <div className="col-span-2 space-y-1.5">
-            <Label htmlFor="estimatedValue" className="text-[12px]">Estimated value (USD)</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="estimatedValue" className="text-[12px]">Estimated value (INR)</Label>
             <Input
               id="estimatedValue"
               type="number"
@@ -488,6 +540,51 @@ function OverviewTab({
               {...register('estimatedValue', {
                 setValueAs: (v) => (v === '' || v == null ? null : Number(v)),
               })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[12px]">Expected Close</Label>
+            <Controller
+              control={control}
+              name="expectedClose"
+              render={({ field }) => (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={cn(
+                        'h-9 text-[12px] w-full justify-start font-normal',
+                        !field.value && 'text-muted-foreground'
+                      )}
+                    >
+                      <CalendarIcon className="size-3.5 mr-1.5" />
+                      {field.value ? format(new Date(field.value), 'MMM d, yyyy') : 'Pick a date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={field.value ? new Date(field.value) : undefined}
+                      onSelect={(d) => field.onChange(d ? d.toISOString() : null)}
+                      initialFocus
+                    />
+                    {field.value && (
+                      <div className="border-t border-border p-2 flex justify-end">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-[11px] text-destructive hover:text-destructive"
+                          onClick={() => field.onChange(null)}
+                        >
+                          Clear date
+                        </Button>
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              )}
             />
           </div>
         </div>
@@ -515,6 +612,24 @@ function OverviewTab({
             />
           </div>
           <div className="space-y-1.5">
+            <Label className="text-[12px]">Assigned User</Label>
+            <Controller
+              control={control}
+              name="assignedUserId"
+              render={({ field }) => (
+                <Select value={field.value || 'unassigned'} onValueChange={(v) => field.onChange(v === 'unassigned' ? null : v)}>
+                  <SelectTrigger className="h-9 text-[12px] w-full"><SelectValue placeholder="Assign to…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {members.map((m) => (
+                      <SelectItem key={m.id} value={m.userId}>{m.user?.name || m.user?.email}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+          <div className="col-span-2 space-y-1.5">
             <Label className="text-[12px]">Company</Label>
             <Controller
               control={control}

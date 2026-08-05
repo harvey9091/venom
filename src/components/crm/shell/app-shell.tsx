@@ -4,9 +4,9 @@ import { useAppStore } from '@/lib/store'
 import { Avatar } from '@/components/crm/shared'
 import { cn } from '@/lib/utils'
 import {
-  LayoutDashboard, Building2, Users, UserPlus, KanbanSquare, ListTodo,
-  Calendar, StickyNote, Paperclip, Workflow, Upload, Settings,
-  ChevronLeft, ChevronRight, Sparkles, Search,
+  LayoutDashboard, KanbanSquare, ListTodo,
+  StickyNote, Workflow, Settings, Sparkles, Search,
+  UserPlus, Target, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { useKeyboardShortcuts } from '@/lib/shortcuts'
 import { CommandPalette } from './command-palette'
@@ -26,17 +26,12 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, view: 'dashboard', group: 'Workspace' },
+  { key: 'automations', label: 'Automations', icon: Workflow, view: 'automations', group: 'Workspace' },
   { key: 'pipeline', label: 'Pipeline', icon: KanbanSquare, view: 'pipeline', group: 'Sales' },
   { key: 'leads', label: 'Leads', icon: UserPlus, view: 'leads', group: 'Sales' },
-  { key: 'contacts', label: 'Contacts', icon: Users, view: 'contacts', group: 'Sales' },
-  { key: 'companies', label: 'Companies', icon: Building2, view: 'companies', group: 'Sales' },
-  { key: 'deals', label: 'Deals', icon: KanbanSquare, view: 'deals', group: 'Sales' },
+  { key: 'deals', label: 'Deals', icon: Target, view: 'deals', group: 'Sales' },
   { key: 'tasks', label: 'Tasks', icon: ListTodo, view: 'tasks', group: 'Productivity' },
-  { key: 'calendar', label: 'Calendar', icon: Calendar, view: 'calendar', group: 'Productivity' },
   { key: 'notes', label: 'Notes', icon: StickyNote, view: 'notes', group: 'Productivity' },
-  { key: 'files', label: 'Files', icon: Paperclip, view: 'files', group: 'Productivity' },
-  { key: 'automations', label: 'Automations', icon: Workflow, view: 'automations', group: 'Workspace' },
-  { key: 'import', label: 'Import CSV', icon: Upload, view: 'import', group: 'Workspace' },
   { key: 'settings', label: 'Settings', icon: Settings, view: 'settings', group: 'Workspace' },
 ]
 
@@ -92,11 +87,11 @@ function Sidebar() {
         className="mx-2 mt-3 mb-2 flex items-center gap-2.5 p-2 rounded-xl hover:bg-sidebar-accent/60 transition-colors group"
       >
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/70 text-primary-foreground grid place-items-center font-bold text-sm shrink-0 shadow-soft">
-          {workspace?.name?.[0]?.toUpperCase() || 'A'}
+          {workspace?.name?.[0]?.toUpperCase() || 'V'}
         </div>
         {!collapsed && (
           <div className="flex-1 min-w-0 text-left">
-            <div className="text-[13px] font-semibold truncate">{workspace?.name || 'Pulse CRM'}</div>
+            <div className="text-[13px] font-semibold truncate">{workspace?.name || 'Venom CRM'}</div>
             <div className="text-[10px] text-muted-foreground capitalize">{workspace?.plan} plan</div>
           </div>
         )}

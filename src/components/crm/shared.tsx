@@ -73,8 +73,13 @@ export function TagChip({ label, color }: { label: string; color: string }) {
   )
 }
 
-export function money(n: number, currency = 'USD') {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n)
+/** Indian Rupee formatting with Indian number system (lakh/crore grouping). */
+export function money(n: number, _currency = 'INR') {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(n || 0)
 }
 
 export function relTime(date: string | Date) {

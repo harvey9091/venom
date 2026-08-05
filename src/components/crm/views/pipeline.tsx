@@ -192,7 +192,7 @@ function DealCard({ deal, isOverlay }: { deal: Deal; isOverlay?: boolean }) {
       </div>
       <div className="mt-2 flex items-end justify-between gap-2">
         <div className="text-[16px] font-semibold tabular-nums leading-none">
-          {money(deal.amount || 0, deal.currency || 'USD')}
+          {money(deal.amount || 0, deal.currency || 'INR')}
         </div>
         {deal.owner && (
           <Avatar name={deal.owner.name} url={deal.owner.avatarUrl} size={20} />

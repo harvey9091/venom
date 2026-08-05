@@ -360,7 +360,7 @@ function WorkspaceSection() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label htmlFor="ws-name">Name</Label>
-            <Input id="ws-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Acme Inc." />
+            <Input id="ws-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Venom CRM" />
           </div>
 
           <div className="space-y-1.5">
@@ -632,7 +632,7 @@ function InviteMemberDialog({
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="inv-email">Email</Label>
-            <Input id="inv-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@acme.com" autoFocus />
+            <Input id="inv-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@venom.com" autoFocus />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="inv-name">Name (optional)</Label>
@@ -938,7 +938,7 @@ function ThemePreview({ cfg }: { cfg: ThemeConfig }) {
       >
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-[13px] font-semibold">Acme Corp — Q3 deal</div>
+            <div className="text-[13px] font-semibold">Venom Corp — Q3 deal</div>
             <div className="text-[11.5px] text-muted-foreground">Expected close · Aug 22</div>
           </div>
           <Badge>$48,000</Badge>

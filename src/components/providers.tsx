@@ -84,7 +84,7 @@ function IdentityBootstrap({ children }: { children: React.ReactNode }) {
               label={label}
               size="xl"
               variant="orbit"
-              theme="rainbow"
+              theme="primary"
               progress={progress}
             />
           </motion.div>

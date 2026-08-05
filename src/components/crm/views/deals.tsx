@@ -242,7 +242,7 @@ function useDealColumns(pipelines: Pipeline[]): ColumnDef<Deal>[] {
           const d = row.original as Deal
           return (
             <span className="text-[12px] tabular-nums font-medium">
-              {money(d.amount || 0, d.currency || 'USD')}
+              {money(d.amount || 0, d.currency || 'INR')}
             </span>
           )
         },

@@ -36,6 +36,7 @@ model User {
   notifications Notification[]
   activities    Activity[]
   ownedLeads    Lead[]      @relation("LeadOwner")
+  assignedLeads Lead[]      @relation("LeadAssignee")
   ownedDeals    Deal[]      @relation("DealOwner")
   ownedTasks    Task[]      @relation("TaskOwner")
   assignedTasks Task[]      @relation("TaskAssignee")
@@ -167,11 +168,13 @@ model Lead {
   email         String?
   phone         String?
   source        String?  // website | referral | ads | cold-outreach | event | other
-  status        String   @default("new") // new | contacted | qualified | unqualified | converted
+  status        String   @default("new") // new | contacted | qualified | unqualified | proposal_sent | negotiation | won | lost | archived
   score         Int      @default(0)     // 0-100
   estimatedValue Float?
-  convertedDealId String? @unique
+  expectedClose DateTime?
+  assignedUserId String?
   lastActivityAt DateTime?
+  convertedDealId String? @unique
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -179,6 +182,7 @@ model Lead {
   contact      Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
   company      Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
   owner        User?     @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  assignedUser User?     @relation("LeadAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
   convertedDeal Deal?    @relation("ConvertedDeal", fields: [convertedDealId], references: [id], onDelete: SetNull)
   activities   Activity[]
   notes        Note[]
@@ -222,7 +226,7 @@ model Deal {
   ownerId       String?
   title         String
   amount        Float    @default(0)
-  currency      String   @default("USD")
+  currency      String   @default("INR")
   probability   Int      @default(20)
   expectedClose DateTime?
   closedAt      DateTime?

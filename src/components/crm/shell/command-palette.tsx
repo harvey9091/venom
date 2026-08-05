@@ -4,8 +4,8 @@ import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, C
 import { useAppStore } from '@/lib/store'
 import { useGlobalSearch } from '@/lib/hooks'
 import {
-  LayoutDashboard, KanbanSquare, UserPlus, Users, Building2, ListTodo, Calendar, StickyNote,
-  Paperclip, Workflow, Upload, Settings, Search, ArrowRight, Sparkles,
+  LayoutDashboard, KanbanSquare, UserPlus, ListTodo, StickyNote,
+  Workflow, Settings, Sparkles, Target,
 } from 'lucide-react'
 import { Avatar } from '@/components/crm/shared'
 import { Orb } from '@/components/crm/thinking'
@@ -13,17 +13,12 @@ import { useState } from 'react'
 
 const NAV_ITEMS = [
   { label: 'Dashboard', icon: LayoutDashboard, view: 'dashboard' },
+  { label: 'Automations', icon: Workflow, view: 'automations' },
   { label: 'Pipeline', icon: KanbanSquare, view: 'pipeline' },
   { label: 'Leads', icon: UserPlus, view: 'leads' },
-  { label: 'Contacts', icon: Users, view: 'contacts' },
-  { label: 'Companies', icon: Building2, view: 'companies' },
-  { label: 'Deals', icon: KanbanSquare, view: 'deals' },
+  { label: 'Deals', icon: Target, view: 'deals' },
   { label: 'Tasks', icon: ListTodo, view: 'tasks' },
-  { label: 'Calendar', icon: Calendar, view: 'calendar' },
   { label: 'Notes', icon: StickyNote, view: 'notes' },
-  { label: 'Files', icon: Paperclip, view: 'files' },
-  { label: 'Automations', icon: Workflow, view: 'automations' },
-  { label: 'Import CSV', icon: Upload, view: 'import' },
   { label: 'Settings', icon: Settings, view: 'settings' },
 ]
 
@@ -109,8 +104,8 @@ export function CommandPalette() {
               <CommandItem onSelect={() => { openDrawer('lead-new'); setOpen(false) }}>
                 <UserPlus size={14} /><span>Create new lead</span>
               </CommandItem>
-              <CommandItem onSelect={() => { openDrawer('deal-new'); setOpen(false) }}>
-                <Sparkles size={14} /><span>Create new deal</span>
+              <CommandItem onSelect={() => go('leads')}>
+                <Sparkles size={14} /><span>Import CSV (in Leads)</span>
               </CommandItem>
             </CommandGroup>
             <CommandSeparator />
@@ -144,25 +139,6 @@ export function CommandPalette() {
                 ))}
               </CommandGroup>
             )}
-            {results.contacts?.length > 0 && (
-              <CommandGroup heading="Contacts">
-                {results.contacts.slice(0, 5).map((c) => (
-                  <CommandItem key={c.id} onSelect={() => { openDrawer('contact', c.id); setOpen(false) }}>
-                    <Avatar name={`${c.firstName} ${c.lastName}`} size={18} />
-                    <span>{c.firstName} {c.lastName}</span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-            {results.companies?.length > 0 && (
-              <CommandGroup heading="Companies">
-                {results.companies.slice(0, 5).map((c) => (
-                  <CommandItem key={c.id} onSelect={() => { openDrawer('company', c.id); setOpen(false) }}>
-                    <Building2 size={14} /><span>{c.name}</span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
             {results.deals?.length > 0 && (
               <CommandGroup heading="Deals">
                 {results.deals.slice(0, 5).map((d) => (
@@ -186,15 +162,6 @@ export function CommandPalette() {
                 {results.notes.slice(0, 5).map((n) => (
                   <CommandItem key={n.id} onSelect={() => { openDrawer('note', n.id); setOpen(false) }}>
                     <StickyNote size={14} /><span>{n.title || n.body.slice(0, 40)}</span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-            {results.files?.length > 0 && (
-              <CommandGroup heading="Files">
-                {results.files.slice(0, 5).map((f) => (
-                  <CommandItem key={f.id} onSelect={() => { openDrawer('file', f.id); setOpen(false) }}>
-                    <Paperclip size={14} /><span>{f.name}</span>
                   </CommandItem>
                 ))}
               </CommandGroup>

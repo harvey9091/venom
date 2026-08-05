@@ -81,6 +81,11 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from '@/components/ui/popover'
+import {
   ColumnDef,
   flexRender,
   getCoreRowModel,
@@ -103,6 +108,9 @@ import {
   Trash2,
   GripVertical,
   CalendarClock,
+  Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   CircleDot,
   CircleSlash,
@@ -760,10 +768,481 @@ function TasksTable({ tasks }: { tasks: Task[] }) {
 }
 
 // ----------------------------------------------------------------
+// Calendar view — monthly grid grouped by due date
+// ----------------------------------------------------------------
+
+const CAL_WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const CAL_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+const PRIORITY_CAL: Record<
+  TaskPriority,
+  { chip: string; dot: string; label: string }
+> = {
+  low: {
+    chip: 'bg-slate-500/15 text-slate-600 dark:text-slate-300',
+    dot: 'bg-slate-500',
+    label: 'Low',
+  },
+  medium: {
+    chip: 'bg-blue-500/15 text-blue-600 dark:text-blue-300',
+    dot: 'bg-blue-500',
+    label: 'Medium',
+  },
+  high: {
+    chip: 'bg-amber-500/15 text-amber-600 dark:text-amber-300',
+    dot: 'bg-amber-500',
+    label: 'High',
+  },
+  urgent: {
+    chip: 'bg-rose-500/15 text-rose-600 dark:text-rose-300',
+    dot: 'bg-rose-500',
+    label: 'Urgent',
+  },
+}
+
+/** Local-day yyyy-mm-dd key (avoids UTC off-by-one). */
+function dayKey(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** Monday of the week containing day 1 of `viewMonth`. */
+function gridStart(viewMonth: Date): Date {
+  const first = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1)
+  const offset = (first.getDay() + 6) % 7 // Mon=0..Sun=6
+  const start = new Date(first)
+  start.setDate(first.getDate() - offset)
+  return start
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  )
+}
+
+function TasksCalendar({
+  tasks,
+  onSwitchToList,
+}: {
+  tasks: Task[]
+  onSwitchToList: () => void
+}) {
+  const openDrawer = useAppStore((s) => s.openDrawer)
+  const user = useAppStore((s) => s.user)
+  const workspace = useAppStore((s) => s.workspace)
+  const { create, update } = useTaskMutations()
+
+  const [viewMonth, setViewMonth] = React.useState(() => {
+    const t = new Date()
+    return new Date(t.getFullYear(), t.getMonth(), 1)
+  })
+  const [dragTaskId, setDragTaskId] = React.useState<string | null>(null)
+  const [dragOverKey, setDragOverKey] = React.useState<string | null>(null)
+
+  const today = React.useMemo(() => {
+    const t = new Date()
+    return new Date(t.getFullYear(), t.getMonth(), t.getDate())
+  }, [])
+
+  const start = React.useMemo(() => gridStart(viewMonth), [viewMonth])
+
+  const days = React.useMemo(
+    () =>
+      Array.from({ length: 42 }, (_, i) => {
+        const d = new Date(start)
+        d.setDate(start.getDate() + i)
+        return d
+      }),
+    [start]
+  )
+
+  // Column index (0-6) of today, only if today is within the visible grid.
+  const todayColIndex = React.useMemo(() => {
+    const idx = days.findIndex((d) => isSameDay(d, today))
+    return idx === -1 ? -1 : idx % 7
+  }, [days, today])
+
+  const tasksByDay = React.useMemo(() => {
+    const map = new Map<string, Task[]>()
+    const rank: Record<TaskPriority, number> = {
+      urgent: 0,
+      high: 1,
+      medium: 2,
+      low: 3,
+    }
+    for (const t of tasks) {
+      if (!t.dueDate) continue
+      const d = new Date(t.dueDate)
+      if (isNaN(d.getTime())) continue
+      const k = dayKey(d)
+      const arr = map.get(k) || []
+      arr.push(t)
+      map.set(k, arr)
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => {
+        const pr = rank[a.priority] - rank[b.priority]
+        if (pr !== 0) return pr
+        return (a.startDate || a.dueDate || '').localeCompare(
+          b.startDate || b.dueDate || ''
+        )
+      })
+    }
+    return map
+  }, [tasks])
+
+  const noDue = React.useMemo(() => tasks.filter((t) => !t.dueDate), [tasks])
+
+  const shiftMonth = (delta: number) =>
+    setViewMonth(
+      (prev) => new Date(prev.getFullYear(), prev.getMonth() + delta, 1)
+    )
+  const goToday = () => {
+    const t = new Date()
+    setViewMonth(new Date(t.getFullYear(), t.getMonth(), 1))
+  }
+
+  const createOnDay = (d: Date) => {
+    if (!user || !workspace) return
+    const dueIso = new Date(
+      d.getFullYear(),
+      d.getMonth(),
+      d.getDate(),
+      12,
+      0,
+      0
+    ).toISOString()
+    create.mutate(
+      {
+        workspaceId: workspace.id,
+        title: 'New task',
+        status: 'todo',
+        priority: 'medium',
+        dueDate: dueIso,
+        ownerId: user.id,
+        creatorId: user.id,
+      },
+      {
+        onSuccess: (created) => {
+          if (created?.id) openDrawer('task', created.id)
+          toast.success('Task created')
+        },
+        onError: () => toast.error('Could not create task'),
+      }
+    )
+  }
+
+  const onChipDragStart = (e: React.DragEvent, taskId: string) => {
+    setDragTaskId(taskId)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', taskId)
+  }
+  const onChipDragEnd = () => {
+    setDragTaskId(null)
+    setDragOverKey(null)
+  }
+  const onCellDragOver = (e: React.DragEvent, key: string) => {
+    if (!dragTaskId) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOverKey !== key) setDragOverKey(key)
+  }
+  const onCellDrop = (e: React.DragEvent, d: Date) => {
+    e.preventDefault()
+    const taskId = e.dataTransfer.getData('text/plain') || dragTaskId
+    setDragOverKey(null)
+    setDragTaskId(null)
+    if (!taskId) return
+    const dueIso = new Date(
+      d.getFullYear(),
+      d.getMonth(),
+      d.getDate(),
+      12,
+      0,
+      0
+    ).toISOString()
+    update.mutate(
+      { id: taskId, dueDate: dueIso },
+      {
+        onSuccess: () => toast.success('Task rescheduled'),
+        onError: () => toast.error('Could not reschedule task'),
+      }
+    )
+  }
+
+  const monthLabel = `${CAL_MONTHS[viewMonth.getMonth()]} ${viewMonth.getFullYear()}`
+
+  return (
+    <div className="flex flex-col xl:flex-row gap-3">
+      <div className="flex-1 min-w-0">
+        {/* Toolbar: prev/today/next + month label + legend */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-8"
+              onClick={() => shiftMonth(-1)}
+              aria-label="Previous month"
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button variant="outline" size="sm" className="h-8" onClick={goToday}>
+              Today
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-8"
+              onClick={() => shiftMonth(1)}
+              aria-label="Next month"
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+          <div className="text-[14px] font-semibold ml-1">{monthLabel}</div>
+          <div className="flex-1" />
+          <div className="hidden sm:flex items-center gap-3 text-[11px] text-muted-foreground">
+            {(['low', 'medium', 'high', 'urgent'] as TaskPriority[]).map((p) => (
+              <span key={p} className="inline-flex items-center gap-1.5">
+                <span className={cn('size-2 rounded-full', PRIORITY_CAL[p].dot)} />
+                {PRIORITY_CAL[p].label}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Weekday header row */}
+        <div className="grid grid-cols-7 gap-px mb-px">
+          {CAL_WEEKDAYS.map((wd, i) => (
+            <div
+              key={wd}
+              className={cn(
+                'text-[10px] font-semibold uppercase tracking-wide text-muted-foreground text-center py-1.5 rounded-t-md',
+                i === todayColIndex && 'bg-primary/8 text-primary'
+              )}
+            >
+              {wd}
+            </div>
+          ))}
+        </div>
+
+        {/* 6×7 day grid */}
+        <div className="grid grid-cols-7 gap-px bg-border/40 rounded-md overflow-hidden border border-border/60">
+          {days.map((d, i) => {
+            const key = dayKey(d)
+            const inMonth = d.getMonth() === viewMonth.getMonth()
+            const isToday = isSameDay(d, today)
+            const dayTasks = tasksByDay.get(key) || []
+            const visible = dayTasks.slice(0, 3)
+            const moreCount = dayTasks.length - visible.length
+            const isColToday = i % 7 === todayColIndex
+            return (
+              <div
+                key={key}
+                role="gridcell"
+                aria-label={d.toDateString()}
+                onClick={() => dayTasks.length === 0 && createOnDay(d)}
+                onDragOver={(e) => onCellDragOver(e, key)}
+                onDragLeave={() => {
+                  if (dragOverKey === key) setDragOverKey(null)
+                }}
+                onDrop={(e) => onCellDrop(e, d)}
+                className={cn(
+                  'group relative min-h-[100px] p-1.5 bg-card transition-colors',
+                  !inMonth && 'bg-muted/20',
+                  isColToday && 'bg-primary/5',
+                  dragOverKey === key &&
+                    'bg-primary/10 ring-1 ring-inset ring-primary/40',
+                  dayTasks.length === 0 && 'cursor-pointer hover:bg-muted/40'
+                )}
+              >
+                {/* Day number */}
+                <div className="flex justify-end mb-0.5">
+                  <span
+                    className={cn(
+                      'inline-flex items-center justify-center text-[11px] tabular-nums rounded-full size-5 leading-none',
+                      isToday
+                        ? 'bg-primary text-primary-foreground font-semibold'
+                        : inMonth
+                        ? 'text-muted-foreground'
+                        : 'text-muted-foreground/40'
+                    )}
+                  >
+                    {d.getDate()}
+                  </span>
+                </div>
+
+                {/* Task chips (max 3) */}
+                <div className="space-y-0.5">
+                  {visible.map((t) => {
+                    const pastDue =
+                      isPast(t.dueDate) && t.status !== 'done'
+                    const pc = PRIORITY_CAL[t.priority]
+                    return (
+                      <div
+                        key={t.id}
+                        draggable
+                        onDragStart={(e) => onChipDragStart(e, t.id)}
+                        onDragEnd={onChipDragEnd}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openDrawer('task', t.id)
+                        }}
+                        title={t.title}
+                        className={cn(
+                          'cursor-grab active:cursor-grabbing select-none',
+                          'text-[10.5px] leading-tight font-medium px-1.5 py-0.5 rounded truncate border',
+                          pc.chip,
+                          pastDue ? 'border-rose-500/70' : 'border-transparent',
+                          dragTaskId === t.id && 'opacity-40'
+                        )}
+                      >
+                        {t.title}
+                      </div>
+                    )
+                  })}
+
+                  {/* +N more → popover */}
+                  {moreCount > 0 && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded px-1.5 py-0.5 w-full text-left transition-colors"
+                        >
+                          +{moreCount} more
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="start"
+                        className="w-64 p-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="text-[11px] font-semibold text-muted-foreground mb-1.5 px-1">
+                          {d.toLocaleDateString(undefined, {
+                            weekday: 'long',
+                            month: 'short',
+                            day: 'numeric',
+                          })}{' '}
+                          · {dayTasks.length} task
+                          {dayTasks.length > 1 ? 's' : ''}
+                        </div>
+                        <div className="max-h-64 overflow-y-auto scroll-area space-y-0.5">
+                          {dayTasks.map((t) => {
+                            const pastDue =
+                              isPast(t.dueDate) && t.status !== 'done'
+                            const pc = PRIORITY_CAL[t.priority]
+                            return (
+                              <button
+                                key={t.id}
+                                onClick={() => openDrawer('task', t.id)}
+                                className="w-full text-left flex items-start gap-1.5 px-1.5 py-1 rounded hover:bg-muted/60 transition-colors"
+                              >
+                                <span
+                                  className={cn(
+                                    'mt-0.5 size-2 rounded-full shrink-0',
+                                    pc.dot
+                                  )}
+                                />
+                                <span className="flex-1 min-w-0">
+                                  <span className="block text-[12px] font-medium truncate">
+                                    {t.title}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground capitalize">
+                                    {t.priority}
+                                    {pastDue ? ' · overdue' : ''}
+                                  </span>
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                </div>
+
+                {/* Empty-cell "+" affordance on hover */}
+                {dayTasks.length === 0 && (
+                  <div className="absolute inset-0 grid place-items-center pointer-events-none">
+                    <Plus className="size-4 text-muted-foreground/0 group-hover:text-muted-foreground/40 transition-colors" />
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* No-due-date side panel */}
+      <aside className="xl:w-[280px] shrink-0">
+        <div className="rounded-xl border border-border/60 bg-card shadow-soft p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5">
+              <CalendarIcon className="size-3.5 text-muted-foreground" />
+              <span className="text-[12px] font-semibold">No due date</span>
+            </div>
+            <span className="text-[10px] tabular-nums text-muted-foreground bg-background px-1.5 py-0.5 rounded">
+              {noDue.length}
+            </span>
+          </div>
+          {noDue.length === 0 ? (
+            <div className="text-[11px] text-muted-foreground/70 py-6 text-center">
+              All tasks are scheduled.
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {noDue.slice(0, 5).map((t) => {
+                const pc = PRIORITY_CAL[t.priority]
+                const a = t.assignee || t.owner
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => openDrawer('task', t.id)}
+                    className="w-full text-left flex items-center gap-1.5 px-1.5 py-1.5 rounded hover:bg-muted/50 transition-colors"
+                  >
+                    <span
+                      className={cn('size-2 rounded-full shrink-0', pc.dot)}
+                    />
+                    <span className="text-[12px] font-medium truncate flex-1">
+                      {t.title}
+                    </span>
+                    {a ? (
+                      <Avatar name={a.name} url={a.avatarUrl} size={16} />
+                    ) : null}
+                  </button>
+                )
+              })}
+              {noDue.length > 5 && (
+                <button
+                  onClick={onSwitchToList}
+                  className="w-full text-[11px] text-primary hover:underline pt-1.5 text-center"
+                >
+                  View all {noDue.length}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------
 // Loading skeleton
 // ----------------------------------------------------------------
 
-function TasksSkeleton({ view }: { view: 'board' | 'list' }) {
+function TasksSkeleton({ view }: { view: 'board' | 'list' | 'calendar' }) {
   if (view === 'board') {
     return (
       <div className="flex gap-3 overflow-x-auto pb-2">
@@ -784,6 +1263,26 @@ function TasksSkeleton({ view }: { view: 'board' | 'list' }) {
             </div>
           </div>
         ))}
+      </div>
+    )
+  }
+  if (view === 'calendar') {
+    return (
+      <div className="flex flex-col xl:flex-row gap-3">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-3">
+            <Skeleton className="size-8 rounded-md" />
+            <Skeleton className="h-8 w-16 rounded-md" />
+            <Skeleton className="size-8 rounded-md" />
+            <Skeleton className="h-4 w-32 rounded" />
+          </div>
+          <div className="grid grid-cols-7 gap-px bg-border/40 rounded-md overflow-hidden border border-border/60">
+            {Array.from({ length: 42 }).map((_, i) => (
+              <Skeleton key={i} className="min-h-[100px] rounded-none bg-card" />
+            ))}
+          </div>
+        </div>
+        <Skeleton className="xl:w-[280px] h-48 rounded-xl" />
       </div>
     )
   }
@@ -915,7 +1414,7 @@ export function TasksView() {
   const [statusFilter, setStatusFilter] = React.useState('all')
   const [priorityFilter, setPriorityFilter] = React.useState('all')
   const [assigneeFilter, setAssigneeFilter] = React.useState('all')
-  const [view, setView] = React.useState<'board' | 'list'>('board')
+  const [view, setView] = React.useState<'board' | 'list' | 'calendar'>('board')
   const debouncedQ = useDebounced(q, 300)
 
   const { data: tasks = [], isLoading } = useTasks()
@@ -955,7 +1454,10 @@ export function TasksView() {
       />
 
       <div className="mb-3">
-        <Tabs value={view} onValueChange={(v) => setView(v as 'board' | 'list')}>
+        <Tabs
+          value={view}
+          onValueChange={(v) => setView(v as 'board' | 'list' | 'calendar')}
+        >
           <TabsList className="bg-transparent p-0 h-9 gap-1">
             <TabsTrigger
               value="board"
@@ -969,13 +1471,19 @@ export function TasksView() {
             >
               <ListTodo className="size-3.5" /> List
             </TabsTrigger>
+            <TabsTrigger
+              value="calendar"
+              className="text-[12px] data-[state=active]:bg-muted data-[state=active]:shadow-none gap-1.5"
+            >
+              <CalendarIcon className="size-3.5" /> Calendar
+            </TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
 
       {isLoading ? (
         <TasksSkeleton view={view} />
-      ) : filtered.length === 0 ? (
+      ) : filtered.length === 0 && view !== 'calendar' ? (
         <div className="rounded-xl border border-border/60 bg-card shadow-soft">
           <EmptyState
             icon={<ListTodo className="size-5" />}
@@ -1003,6 +1511,8 @@ export function TasksView() {
         </div>
       ) : view === 'board' ? (
         <TasksBoard tasks={filtered} />
+      ) : view === 'calendar' ? (
+        <TasksCalendar tasks={filtered} onSwitchToList={() => setView('list')} />
       ) : (
         <TasksTable tasks={filtered} />
       )}

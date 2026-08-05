@@ -100,7 +100,7 @@ import {
 // Constants
 // ----------------------------------------------------------------
 
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY']
+const CURRENCIES = ['INR']
 
 // ----------------------------------------------------------------
 // Form schema
@@ -159,7 +159,7 @@ export function DealDrawer({
     defaultValues: {
       title: '',
       amount: 0,
-      currency: 'USD',
+      currency: 'INR',
       probability: 20,
       stageId: stages[0]?.id || null,
       pipelineId: currentPipelineId || null,
@@ -173,7 +173,7 @@ export function DealDrawer({
       ? {
           title: deal.title,
           amount: deal.amount || 0,
-          currency: deal.currency || 'USD',
+          currency: deal.currency || 'INR',
           probability: deal.probability ?? 0,
           stageId: deal.stageId || deal.stage?.id || null,
           pipelineId: deal.pipelineId || deal.pipeline?.id || null,
@@ -339,7 +339,7 @@ export function DealDrawer({
                   </span>
                 )}
                 <span className="tabular-nums text-muted-foreground">
-                  {money(deal.amount || 0, deal.currency || 'USD')}
+                  {money(deal.amount || 0, deal.currency || 'INR')}
                 </span>
                 <span className="tabular-nums text-muted-foreground">
                   {deal.probability || 0}% likely
@@ -450,7 +450,7 @@ function OverviewTab({
   const { register, control, formState: { errors } } = form
   const probability = form.watch('probability') || 0
   const amount = form.watch('amount') || 0
-  const currency = form.watch('currency') || 'USD'
+  const currency = form.watch('currency') || 'INR'
 
   // AI email generator state — visual-only thinking orb while the mock
   // outreach email is "written".
@@ -546,9 +546,9 @@ function OverviewTab({
               control={control}
               name="currency"
               render={({ field }) => (
-                <Select value={field.value || 'USD'} onValueChange={field.onChange}>
+                <Select value={field.value || 'INR'} onValueChange={field.onChange}>
                   <SelectTrigger className="h-9 text-[12px] w-full">
-                    <SelectValue placeholder="USD" />
+                    <SelectValue placeholder="INR" />
                   </SelectTrigger>
                   <SelectContent>
                     {CURRENCIES.map((c) => (

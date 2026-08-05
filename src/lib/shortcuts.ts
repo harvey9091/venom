@@ -60,15 +60,12 @@ export function useKeyboardShortcuts() {
       if (gPressed) {
         const map: Record<string, () => void> = {
           d: () => navigate('dashboard'),
-          c: () => navigate('companies'),
-          o: () => navigate('contacts'),
-          l: () => navigate('leads'),
+          a: () => navigate('automations'),
           p: () => navigate('pipeline'),
+          l: () => navigate('leads'),
+          e: () => navigate('deals'),
           t: () => navigate('tasks'),
-          a: () => navigate('calendar'),
           n: () => navigate('notes'),
-          f: () => navigate('files'),
-          u: () => navigate('automations'),
           s: () => navigate('settings'),
         }
         if (map[e.key]) {
