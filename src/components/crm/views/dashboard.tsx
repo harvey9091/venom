@@ -802,7 +802,7 @@ function QuickActions() {
     {
       label: 'Import CSV',
       icon: Upload,
-      onClick: () => navigate('import'),
+      onClick: () => navigate('leads'),
       accent: 'var(--chart-3)',
     },
     {
@@ -932,7 +932,7 @@ function WelcomeBanner() {
           <Button onClick={() => openDrawer('lead-new')}>
             <UserPlus size={14} /> Create Lead
           </Button>
-          <Button variant="outline" onClick={() => navigate('import')}>
+          <Button variant="outline" onClick={() => navigate('leads')}>
             <Upload size={14} /> Import CSV
           </Button>
         </div>

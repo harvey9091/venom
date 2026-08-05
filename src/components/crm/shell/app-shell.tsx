@@ -227,7 +227,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen bg-background text-foreground">
       {/* Only ONE nav mode rendered at a time */}
       {!useDock && <Sidebar />}
-      <div className={cn('flex-1 flex flex-col min-w-0', useDock && 'pb-20 md:pb-0')}>
+      <motion.div
+        className={cn('flex-1 flex flex-col min-w-0', useDock && 'pb-20 md:pb-0')}
+        animate={{
+          maxWidth: useDock ? 1600 : '100%',
+        }}
+        transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+        style={{ margin: useDock ? '0 auto' : undefined }}
+      >
         <TopBar />
         <main className="flex-1 min-w-0 overflow-x-hidden">
           <AnimatePresence mode="wait">
@@ -243,7 +250,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </motion.div>
           </AnimatePresence>
         </main>
-      </div>
+      </motion.div>
       {useDock && <VenomFloatingDock />}
       <CommandPalette />
       <NotificationsInbox />

@@ -1260,3 +1260,49 @@ Final: **0 errors, 1 warning** ✅ (`bunx eslint src/components/crm/views/tasks.
 - The "truly fresh workspace" detection is `m.leadCount === 0 && m.dealCount === 0 && m.contactCount === 0` — once any of those becomes non-zero, the WelcomeBanner disappears but the per-card placeholders remain until that card's specific data exists.
 - `KpiCard` now accepts `delta: string | null` (not `string`) — callers passing a literal `string` will still work (TypeScript allows it), but `null` is the canonical "no delta" signal.
 - The `ColumnBody`/`StageColumn` in `pipeline.tsx` got a new `pipelineEmpty?: boolean` prop. The `KanbanBoard` parent computes it from `localDeals.length === 0` and passes it down. This is the canonical signal for "show 'No active deals' instead of 'Drop deals here'" in column bodies.
+
+---
+
+## Task ID: venom-phase4-settings-layout — Unify all settings sections behind `SettingsLayout`
+
+**Agent:** full-stack-developer
+**Task:** Refactor all 13 settings sections to use the new `SettingsLayout` wrapper for identical spacing
+**Date:** 2025
+
+### Work Log
+
+1. Read the required context:
+   - `/home/z/my-project/worklog.md` (build history)
+   - `/home/z/my-project/src/components/crm/views/settings.tsx` — located the new `SettingsLayout` wrapper (lines 297-314) that renders `<div className="space-y-4"><SettingsHeader/>{children}</div>`, plus all 13 section components and their early returns.
+
+2. Refactored **12 of 13** settings sections (IntegrationsSection explicitly skipped per task — it will be rebuilt separately) using only `MultiEdit`. For each section the manual `<div className="space-y-4"><SettingsHeader title=… description=… actions=…/>…children…</div>` was replaced with `<SettingsLayout title=… description=… actions=…>…children…</SettingsLayout>`. Inner content (cards, forms, dialogs, tables, mutations, action buttons) was preserved verbatim — only the outer wrapper changed.
+
+3. Special cases handled:
+   - **WorkspaceSection** early return `if (!workspace) return <PremiumCard><Skeleton/></PremiumCard>` was wrapped in `<SettingsLayout title="Workspace" description="…">` so the SettingsHeader is present even during loading — eliminates the vertical jump when the workspace resolves.
+   - **ApiKeysSection**: verified it does NOT have a component-level early return (the `if (!workspace || !user) return` only appears inside the inner `createKey` function), so only the standard wrapper swap was needed.
+   - **AppearanceSection** had a `<SettingsHeader>` with an action button (Reset theme) — moved that action into the `actions` prop of `<SettingsLayout>`, removed the manual `<SettingsHeader>`, kept the entire theme gallery + customization grid + live preview untouched.
+   - **MembersSection, PipelinesSection, CustomFieldsSection, AuditLogsSection** — forwarded their existing action buttons/select via the `actions` prop.
+   - **NavigationSection, TagsSection, NotificationsSection, ExportsSection, DangerZoneSection** — wrapped without `actions` (none had them originally).
+
+4. Ran `bunx eslint src/components/crm/views/settings.tsx` — exit code 0, no errors, no warnings.
+
+5. Verified with a grep for `^\s*<SettingsHeader` that only two remain in the file:
+   - Line 310 — inside the `SettingsLayout` definition itself (correct: it renders `<SettingsHeader>` internally).
+   - Line 1865 — inside `IntegrationsSection` (intentionally untouched).
+
+### Decisions
+
+- **Why wrap the loading/early-return states in `SettingsLayout` too**: the original bug was that `WorkspaceSection`'s `if (!workspace) return <PremiumCard><Skeleton/></PremiumCard>` rendered without the header, causing vertical content to jump ~40px when the workspace resolved and the real SettingsHeader appeared. Wrapping the early return in `SettingsLayout` keeps the header pinned at the same y-coordinate in both states — the user sees a stable header with a skeleton body, then a stable header with a real body.
+- **Why forward `actions` on the wrapper instead of inlining them**: the `SettingsHeader` layout reserves space for actions in the header row (`flex flex-wrap items-center gap-2`). Moving action buttons from `<SettingsHeader actions={…}/>` to `<SettingsLayout actions={…}/>` keeps them in the exact same DOM position via the exact same `SettingsHeader` render path — zero visual delta, single source of truth for the header layout.
+- **Why leave `IntegrationsSection` alone**: it is explicitly slated for a separate rebuild in a follow-up task. Touching it now would create churn that gets thrown away.
+
+### Files Changed
+
+- `src/components/crm/views/settings.tsx` — 12 sections refactored (WorkspaceSection, MembersSection, NavigationSection, AppearanceSection, PipelinesSection, CustomFieldsSection, TagsSection, NotificationsSection, ApiKeysSection, AuditLogsSection, ExportsSection, DangerZoneSection).
+
+### Notes for Future Agents
+
+- The ONLY acceptable wrapper for a settings section is `<SettingsLayout>`. Do not re-introduce `<div className="space-y-4"><SettingsHeader/></div>` — that pattern is now dead.
+- When adding a NEW settings section: wrap it in `<SettingsLayout title="…" description="…" actions={…?}>`. If it has loading/empty early returns, wrap those too so the header is always present.
+- `IntegrationsSection` (line ~1854) is the ONLY remaining section using the old pattern — leave it alone until the rebuild task picks it up.
+- The `SettingsLayout` component itself (lines 297-314) is the single source of truth for the header + spacing — edit it there to change the look of every section at once.

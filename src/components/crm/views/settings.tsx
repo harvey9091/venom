@@ -36,7 +36,7 @@ import * as React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 
-import { useSettings, useSettingsMutations, usePipelines, usePipelineMutations, useTags, useTagMutations, useLeads, useContacts, useDeals, useActivities } from '@/lib/hooks'
+import { useSettings, useSettingsMutations, usePipelines, usePipelineMutations, useTags, useTagMutations, useLeads, useContacts, useDeals, useActivities, useIntegrations } from '@/lib/hooks'
 import { useAppStore } from '@/lib/store'
 import {
   useThemeStore,
@@ -150,6 +150,13 @@ import {
   Compass,
   PanelLeft,
   LayoutDashboard,
+  Database,
+  BrainCircuit,
+  Github,
+  Chrome,
+  MessageCircle,
+  MessagesSquare,
+  Settings as SettingsIcon,
 } from 'lucide-react'
 
 // ---------------------------------------------------------------
@@ -159,6 +166,7 @@ import {
 type SectionKey =
   | 'workspace'
   | 'members'
+  | 'navigation'
   | 'appearance'
   | 'pipelines'
   | 'customFields'
@@ -287,6 +295,32 @@ function PremiumCard({ className, children }: { className?: string; children: Re
   )
 }
 
+/**
+ * SettingsLayout — unified wrapper for EVERY settings section.
+ *
+ * Guarantees identical vertical spacing, header placement, and content
+ * alignment across all 13 sections. No section should render without this
+ * wrapper (including loading skeletons and empty states).
+ */
+function SettingsLayout({
+  title,
+  description,
+  actions,
+  children,
+}: {
+  title: string
+  description?: string
+  actions?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <div className="space-y-4">
+      <SettingsHeader title={title} description={description} actions={actions} />
+      {children}
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------
 // 1. Workspace section
 // ---------------------------------------------------------------
@@ -294,7 +328,8 @@ function PremiumCard({ className, children }: { className?: string; children: Re
 function WorkspaceSection() {
   const workspace = useAppStore((s) => s.workspace)
   const setWorkspace = useAppStore((s) => s.setWorkspace)
-  const { post, isPending } = useSettingsMutations()
+  const { post } = useSettingsMutations()
+  const isPending = post.isPending
 
   const [name, setName] = React.useState(workspace?.name || '')
   const [description, setDescription] = React.useState(workspace?.description || '')
@@ -311,7 +346,14 @@ function WorkspaceSection() {
   }, [workspace])
 
   if (!workspace) {
-    return <PremiumCard><Skeleton className="h-32 w-full" /></PremiumCard>
+    return (
+      <SettingsLayout
+        title="Workspace"
+        description="Manage your workspace identity, branding, and plan."
+      >
+        <PremiumCard><Skeleton className="h-32 w-full" /></PremiumCard>
+      </SettingsLayout>
+    )
   }
 
   const dirty =
@@ -342,12 +384,10 @@ function WorkspaceSection() {
   }
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="Workspace"
-        description="Manage your workspace identity, branding, and plan."
-      />
-
+    <SettingsLayout
+      title="Workspace"
+      description="Manage your workspace identity, branding, and plan."
+    >
       <PremiumCard>
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
@@ -461,7 +501,7 @@ function WorkspaceSection() {
           </Button>
         </div>
       </PremiumCard>
-    </div>
+    </SettingsLayout>
   )
 }
 
@@ -476,17 +516,15 @@ function MembersSection() {
   const [inviteOpen, setInviteOpen] = React.useState(false)
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="Members"
-        description="Invite teammates, manage roles, and remove access."
-        actions={
-          <Button onClick={() => setInviteOpen(true)}>
-            <Plus size={14} /> Invite member
-          </Button>
-        }
-      />
-
+    <SettingsLayout
+      title="Members"
+      description="Invite teammates, manage roles, and remove access."
+      actions={
+        <Button onClick={() => setInviteOpen(true)}>
+          <Plus size={14} /> Invite member
+        </Button>
+      }
+    >
       <PremiumCard className="p-0 overflow-hidden">
         {isLoading ? (
           <div className="p-4 space-y-3">
@@ -538,7 +576,7 @@ function MembersSection() {
         }}
         isPending={post.isPending}
       />
-    </div>
+    </SettingsLayout>
   )
 }
 
@@ -720,11 +758,10 @@ function NavigationSection() {
   ]
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="Navigation"
-        description="Choose how you want to move around Venom CRM. Your preference is saved to this device and will sync to your workspace preferences in production."
-      />
+    <SettingsLayout
+      title="Navigation"
+      description="Choose how you want to move around Venom CRM. Your preference is saved to this device and will sync to your workspace preferences in production."
+    >
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {options.map((opt) => {
           const selected = navMode === opt.value
@@ -769,7 +806,7 @@ function NavigationSection() {
           <strong className="text-foreground">Persistence:</strong> Your navigation preference is stored in <code className="px-1 py-0.5 rounded bg-background border border-border text-[10px]">localStorage</code> under <code className="px-1 py-0.5 rounded bg-background border border-border text-[10px]">venom-nav-preferences</code>. In production with Supabase, this will sync to a <code className="px-1 py-0.5 rounded bg-background border border-border text-[10px]">workspace_preferences</code> table so it follows you across devices.
         </div>
       </div>
-    </div>
+    </SettingsLayout>
   )
 }
 
@@ -781,17 +818,15 @@ function AppearanceSection() {
   const theme = useThemeStore()
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="Appearance"
-        description="Pick a theme and tune every aspect of the UI — accent, density, typography, glass intensity, and more."
-        actions={
-          <Button variant="outline" onClick={() => { theme.reset(); toast.success('Theme reset to defaults') }}>
-            <RotateCcw size={14} /> Reset
-          </Button>
-        }
-      />
-
+    <SettingsLayout
+      title="Appearance"
+      description="Pick a theme and tune every aspect of the UI — accent, density, typography, glass intensity, and more."
+      actions={
+        <Button variant="outline" onClick={() => { theme.reset(); toast.success('Theme reset to defaults') }}>
+          <RotateCcw size={14} /> Reset
+        </Button>
+      }
+    >
       {/* Theme gallery */}
       <PremiumCard>
         <div className="flex items-center justify-between mb-3">
@@ -1004,7 +1039,7 @@ function AppearanceSection() {
         </div>
         <ThemePreview cfg={theme.config} />
       </PremiumCard>
-    </div>
+    </SettingsLayout>
   )
 }
 
@@ -1107,17 +1142,15 @@ function PipelinesSection() {
   const [createOpen, setCreateOpen] = React.useState(false)
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="Pipelines"
-        description="Manage sales pipelines and their stages."
-        actions={
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus size={14} /> Create pipeline
-          </Button>
-        }
-      />
-
+    <SettingsLayout
+      title="Pipelines"
+      description="Manage sales pipelines and their stages."
+      actions={
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus size={14} /> Create pipeline
+        </Button>
+      }
+    >
       {isLoading ? (
         <PremiumCard><div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-md" />)}</div></PremiumCard>
       ) : pipelines.length === 0 ? (
@@ -1163,7 +1196,7 @@ function PipelinesSection() {
         }
         isPending={create.isPending}
       />
-    </div>
+    </SettingsLayout>
   )
 }
 
@@ -1404,17 +1437,15 @@ function CustomFieldsSection() {
   const [createOpen, setCreateOpen] = React.useState(false)
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="Custom Fields"
-        description="Add typed fields to leads, contacts, deals, companies, or tasks."
-        actions={
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus size={14} /> Add field
-          </Button>
-        }
-      />
-
+    <SettingsLayout
+      title="Custom Fields"
+      description="Add typed fields to leads, contacts, deals, companies, or tasks."
+      actions={
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus size={14} /> Add field
+        </Button>
+      }
+    >
       <PremiumCard className="p-0 overflow-hidden">
         {isLoading ? (
           <div className="p-4 space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-full rounded-md" />)}</div>
@@ -1483,7 +1514,7 @@ function CustomFieldsSection() {
         }}
         isPending={post.isPending}
       />
-    </div>
+    </SettingsLayout>
   )
 }
 
@@ -1625,12 +1656,10 @@ function TagsSection() {
   }
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="Tags"
-        description="Reusable labels for leads, contacts, deals, and companies."
-      />
-
+    <SettingsLayout
+      title="Tags"
+      description="Reusable labels for leads, contacts, deals, and companies."
+    >
       <PremiumCard>
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <Input
@@ -1671,7 +1700,7 @@ function TagsSection() {
           )}
         </div>
       </PremiumCard>
-    </div>
+    </SettingsLayout>
   )
 }
 
@@ -1729,12 +1758,10 @@ function NotificationsSection() {
   }
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="Notifications"
-        description="Choose how you want to be notified for each event type."
-      />
-
+    <SettingsLayout
+      title="Notifications"
+      description="Choose how you want to be notified for each event type."
+    >
       <PremiumCard className="p-0 overflow-hidden">
         <Table>
           <TableHeader>
@@ -1809,80 +1836,177 @@ function NotificationsSection() {
           </div>
         </div>
       </PremiumCard>
-    </div>
+    </SettingsLayout>
   )
 }
 
 // ---------------------------------------------------------------
-// 8. Integrations section (mock)
+// 8. Integrations section — real connection detection from backend
 // ---------------------------------------------------------------
 
-const INTEGRATIONS = [
-  { id: 'slack', name: 'Slack', emoji: '💬', desc: 'Send deal alerts and mention notifications to Slack channels.' },
-  { id: 'gmail', name: 'Gmail', emoji: '📧', desc: 'Sync emails with leads and contacts automatically.' },
-  { id: 'outlook', name: 'Outlook', emoji: ' Outlook', desc: 'Two-way calendar + email sync for Microsoft accounts.' },
-  { id: 'zoom', name: 'Zoom', emoji: '🎥', desc: 'Schedule and attach Zoom meetings to deals.' },
-  { id: 'stripe', name: 'Stripe', emoji: '💳', desc: 'Pull subscription and revenue data into deal records.' },
-  { id: 'hubspot', name: 'HubSpot', emoji: '🟠', desc: 'Migrate contacts and companies from HubSpot.' },
-  { id: 'intercom', name: 'Intercom', emoji: '💬', desc: 'Push conversation history to lead records.' },
-  { id: 'twilio', name: 'Twilio', emoji: '📱', desc: 'Send and receive SMS from the contacts view.' },
-  { id: 'openai', name: 'OpenAI', emoji: '✨', desc: 'AI-assisted email drafting and lead scoring.' },
-  { id: 'anthropic', name: 'Anthropic', emoji: '🧠', desc: 'Claude-powered summarization of notes and calls.' },
-] as const
+const INTEGRATION_META: Record<string, { icon: React.ComponentType<{ size?: number }>; description: string }> = {
+  supabase: { icon: Database, description: 'Postgres database, authentication, storage, realtime, and edge functions. The primary backend for Venom CRM.' },
+  openai: { icon: Sparkles, description: 'AI-assisted email drafting, lead scoring, and natural language search powered by GPT models.' },
+  anthropic: { icon: BrainCircuit, description: 'Claude-powered summarization of notes, calls, and meetings. Conversational AI assistant.' },
+  github: { icon: Github, description: 'Sign in with GitHub, sync issues to tasks, and link pull requests to deals.' },
+  google: { icon: Chrome, description: 'Sign in with Google, sync Gmail and Google Calendar with leads and tasks.' },
+  gmail: { icon: Mail, description: 'Sync emails with leads and contacts automatically. Two-way thread linking.' },
+  discord: { icon: MessageCircle, description: 'Send deal alerts and automation notifications to Discord channels.' },
+  slack: { icon: MessagesSquare, description: 'Send deal alerts and mention notifications to Slack channels.' },
+}
 
 function IntegrationsSection() {
-  const [connected, setConnected] = React.useState<Record<string, boolean>>({ slack: true, openai: true })
-
-  function toggle(id: string) {
-    setConnected((c) => {
-      const next = !c[id]
-      if (next) toast.success(`${INTEGRATIONS.find((i) => i.id === id)?.name} connected`)
-      else toast.info('Coming soon')
-      return { ...c, [id]: next }
-    })
-  }
+  const { data, isLoading } = useIntegrations()
+  const integrations = data?.integrations ?? []
+  const summary = data?.summary
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="Integrations"
-        description="Connect Pulse CRM with the tools your team already uses."
-      />
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {INTEGRATIONS.map((i) => (
-          <PremiumCard key={i.id} className="p-4 flex flex-col">
-            <div className="flex items-start justify-between mb-2">
-              <div className="w-10 h-10 rounded-lg bg-muted/60 grid place-items-center text-[20px]">
-                {i.emoji}
-              </div>
-              {connected[i.id] && (
-                <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 text-[10px]">
-                  <Check size={10} /> Connected
-                </Badge>
-              )}
-            </div>
-            <div className="text-[13px] font-semibold">{i.name}</div>
-            <p className="text-[11.5px] text-muted-foreground mt-1 leading-relaxed flex-1">{i.desc}</p>
-            <Button
-              size="sm"
-              variant={connected[i.id] ? 'outline' : 'default'}
-              className="mt-3 w-full"
-              onClick={() => toggle(i.id)}
-            >
-              {connected[i.id] ? (
-                <>
-                  <Check size={12} /> Connected
-                </>
-              ) : (
-                <>
-                  <Plug size={12} /> Connect
-                </>
-              )}
-            </Button>
-          </PremiumCard>
-        ))}
-      </div>
-    </div>
+    <SettingsLayout
+      title="Integrations"
+      description="Connect Venom CRM with your backend services. Connection status is detected automatically from server configuration — no fake badges."
+    >
+      {/* Summary strip */}
+      {summary && (
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-300">
+            <Check size={10} className="mr-1" /> {summary.connected} Connected
+          </Badge>
+          <Badge variant="secondary" className="bg-muted text-muted-foreground">
+            {summary.total - summary.connected - summary.future} Not Connected
+          </Badge>
+          {summary.future > 0 && (
+            <Badge variant="secondary" className="bg-amber-500/15 text-amber-600 dark:text-amber-300">
+              {summary.future} Planned
+            </Badge>
+          )}
+        </div>
+      )}
+
+      {isLoading && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <PremiumCard key={i} className="p-4 flex flex-col">
+              <Skeleton className="h-10 w-10 rounded-lg mb-3" />
+              <Skeleton className="h-4 w-24 mb-2" />
+              <Skeleton className="h-3 w-full mb-1" />
+              <Skeleton className="h-3 w-2/3 mb-3" />
+              <Skeleton className="h-8 w-full" />
+            </PremiumCard>
+          ))}
+        </div>
+      )}
+
+      {!isLoading && integrations.length === 0 && (
+        <PremiumCard className="p-8 flex flex-col items-center justify-center text-center">
+          <Plug size={28} className="text-muted-foreground/60 mb-2" />
+          <div className="text-sm font-medium">No integrations available</div>
+          <p className="text-[12px] text-muted-foreground mt-1 max-w-sm">
+            Integration detection is running but returned no results. Check your server configuration.
+          </p>
+        </PremiumCard>
+      )}
+
+      {!isLoading && integrations.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {integrations.map((int) => {
+            const meta = INTEGRATION_META[int.id]
+            const Icon = meta?.icon || Plug
+            const isPrimary = int.id === 'supabase'
+            return (
+              <PremiumCard
+                key={int.id}
+                className={cn(
+                  'p-4 flex flex-col relative',
+                  isPrimary && 'ring-1 ring-primary/30',
+                )}
+              >
+                {isPrimary && (
+                  <div className="absolute -top-2 left-3 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide bg-primary text-primary-foreground">
+                    Primary
+                  </div>
+                )}
+                <div className="flex items-start justify-between mb-2">
+                  <div className={cn(
+                    'w-10 h-10 rounded-lg grid place-items-center',
+                    int.connected ? 'bg-primary/10 text-primary' : 'bg-muted/60 text-muted-foreground',
+                  )}>
+                    <Icon size={18} />
+                  </div>
+                  <ConnectionBadge connected={int.connected} future={int.future} />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[13px] font-semibold">{int.name}</span>
+                  {int.future && (
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-300 uppercase font-semibold tracking-wide">Planned</span>
+                  )}
+                </div>
+                <p className="text-[11.5px] text-muted-foreground mt-1 leading-relaxed flex-1">
+                  {meta?.description || 'Integration'}
+                </p>
+
+                {/* Details grid for connected integrations */}
+                {int.details && (
+                  <div className="mt-3 pt-3 border-t border-border/60 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[10.5px]">
+                    {Object.entries(int.details).slice(0, 6).map(([k, v]) => (
+                      <div key={k} className="flex flex-col min-w-0">
+                        <span className="text-muted-foreground/70 uppercase tracking-wide text-[9px]">{k.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase())}</span>
+                        <span className="font-medium text-foreground truncate">{typeof v === 'boolean' ? (v ? '✓' : '—') : String(v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Action button */}
+                <Button
+                  size="sm"
+                  variant={int.connected ? 'outline' : 'default'}
+                  className="mt-3 w-full"
+                  disabled={int.future}
+                  onClick={() => {
+                    if (int.future) return
+                    if (int.connected) {
+                      toast.info(`${int.name} is configured via server environment variables. Update your .env file to disconnect.`)
+                    } else {
+                      toast.info(`Add the required environment variables to connect ${int.name}.`)
+                    }
+                  }}
+                >
+                  {int.future ? (
+                    <>Coming Soon</>
+                  ) : int.connected ? (
+                    <><Check size={12} /> Connected</>
+                  ) : (
+                    <><SettingsIcon size={12} /> Configure</>
+                  )}
+                </Button>
+              </PremiumCard>
+            )
+          })}
+        </div>
+      )}
+    </SettingsLayout>
+  )
+}
+
+function ConnectionBadge({ connected, future }: { connected: boolean; future?: boolean }) {
+  if (future) {
+    return (
+      <Badge variant="secondary" className="bg-amber-500/15 text-amber-600 dark:text-amber-300 text-[10px]">
+        Planned
+      </Badge>
+    )
+  }
+  if (connected) {
+    return (
+      <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 text-[10px]">
+        <Check size={10} className="mr-1" /> Connected
+      </Badge>
+    )
+  }
+  return (
+    <Badge variant="secondary" className="bg-muted text-muted-foreground text-[10px]">
+      <AlertTriangle size={10} className="mr-1" /> Not Connected
+    </Badge>
   )
 }
 
@@ -1918,17 +2042,15 @@ function ApiKeysSection() {
   }
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="API Keys"
-        description="Programmatic access to the Pulse CRM REST API. Keep keys secret."
-        actions={
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus size={14} /> Create API key
-          </Button>
-        }
-      />
-
+    <SettingsLayout
+      title="API Keys"
+      description="Programmatic access to the Pulse CRM REST API. Keep keys secret."
+      actions={
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus size={14} /> Create API key
+        </Button>
+      }
+    >
       <PremiumCard className="p-0 overflow-hidden">
         {isLoading ? (
           <div className="p-4 space-y-3">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-md" />)}</div>
@@ -1998,7 +2120,7 @@ function ApiKeysSection() {
         rawKey={revealedKey}
         onClose={() => setRevealedKey(null)}
       />
-    </div>
+    </SettingsLayout>
   )
 }
 
@@ -2124,26 +2246,24 @@ function AuditLogsSection() {
   const visible = filtered.slice(0, visibleCount)
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="Audit Logs"
-        description="Every important workspace event, recorded for compliance."
-        actions={
-          <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setVisibleCount(20) }}>
-            <SelectTrigger size="sm" className="w-[140px] capitalize">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {AUDIT_ACTIONS.map((a) => (
-                <SelectItem key={a} value={a} className="capitalize">
-                  {a === 'all' ? 'All actions' : a}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        }
-      />
-
+    <SettingsLayout
+      title="Audit Logs"
+      description="Every important workspace event, recorded for compliance."
+      actions={
+        <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setVisibleCount(20) }}>
+          <SelectTrigger size="sm" className="w-[140px] capitalize">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {AUDIT_ACTIONS.map((a) => (
+              <SelectItem key={a} value={a} className="capitalize">
+                {a === 'all' ? 'All actions' : a}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      }
+    >
       <PremiumCard className="p-0 overflow-hidden">
         {isLoading ? (
           <div className="p-4 space-y-3">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 w-full rounded-md" />)}</div>
@@ -2198,7 +2318,7 @@ function AuditLogsSection() {
           </>
         )}
       </PremiumCard>
-    </div>
+    </SettingsLayout>
   )
 }
 
@@ -2304,11 +2424,10 @@ function ExportsSection() {
   ]
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="Exports"
-        description="Download a CSV snapshot of any entity for backup or analysis."
-      />
+    <SettingsLayout
+      title="Exports"
+      description="Download a CSV snapshot of any entity for backup or analysis."
+    >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {cards.map((c) => {
           const Icon = c.icon
@@ -2333,7 +2452,7 @@ function ExportsSection() {
           )
         })}
       </div>
-    </div>
+    </SettingsLayout>
   )
 }
 
@@ -2349,12 +2468,10 @@ function DangerZoneSection() {
   const [confirmText, setConfirmText] = React.useState('')
 
   return (
-    <div className="space-y-4">
-      <SettingsHeader
-        title="Danger Zone"
-        description="Irreversible workspace actions. Proceed with caution."
-      />
-
+    <SettingsLayout
+      title="Danger Zone"
+      description="Irreversible workspace actions. Proceed with caution."
+    >
       <div className="rounded-xl border-2 border-destructive/40 overflow-hidden">
         <div className="bg-destructive/5 divide-y divide-destructive/20">
           {/* Transfer ownership */}
@@ -2452,7 +2569,7 @@ function DangerZoneSection() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </SettingsLayout>
   )
 }
 

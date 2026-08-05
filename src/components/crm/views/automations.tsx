@@ -1895,7 +1895,33 @@ function AutomationEditor({
 
       <div className="flex-1 flex min-h-0">
         {/* Canvas */}
-        <div className="flex-1 relative min-w-0 overflow-hidden">
+        <div className="flex-1 relative min-w-0 overflow-hidden bg-background">
+          {/* Aceternity Dot Background — theme-aware, pans/zooms with viewport */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            aria-hidden
+            style={{
+              backgroundImage:
+                'radial-gradient(color-mix(in oklch, var(--muted-foreground) 20%, transparent) 1px, transparent 1px)',
+              backgroundSize: `${20 * viewport.zoom}px ${20 * viewport.zoom}px`,
+              backgroundPosition: `${viewport.x}px ${viewport.y}px`,
+              // Slightly blur in Glass theme for a frosted feel
+              filter: 'var(--dot-blur, none)',
+              opacity: 0.7,
+            }}
+          />
+          {/* Radial mask for a faded look at the edges */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            aria-hidden
+            style={{
+              background: 'var(--background)',
+              WebkitMaskImage:
+                'radial-gradient(ellipse at center, transparent 30%, black 90%)',
+              maskImage:
+                'radial-gradient(ellipse at center, transparent 30%, black 90%)',
+            }}
+          />
           <div
             ref={canvasRef}
             onMouseDown={onCanvasMouseDown}
@@ -1906,12 +1932,6 @@ function AutomationEditor({
               'absolute inset-0 overflow-hidden select-none',
               pendingPalette ? 'cursor-crosshair' : 'cursor-default',
             )}
-            style={{
-              backgroundImage:
-                'radial-gradient(circle, hsl(var(--muted-foreground) / 0.18) 1px, transparent 1px)',
-              backgroundSize: `${20 * viewport.zoom}px ${20 * viewport.zoom}px`,
-              backgroundPosition: `${viewport.x}px ${viewport.y}px`,
-            }}
           >
             {/* Transformed viewport */}
             <div

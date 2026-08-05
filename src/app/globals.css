@@ -235,6 +235,8 @@
   --sidebar-ring: oklch(0.55 0.18 260);
   --glass-blur: 24px;
   --glass-bg: color-mix(in oklch, var(--background) 65%, transparent);
+  /* Dot background slightly blurs in Glass theme for a frosted workflow editor feel */
+  --dot-blur: blur(0.6px);
 }
 
 /* =========================================================================

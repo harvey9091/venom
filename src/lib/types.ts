@@ -28,6 +28,7 @@ export interface Membership {
   userId: string
   workspaceId: string
   role: Role
+  joinedAt?: string
   user?: User
 }
 

@@ -789,3 +789,31 @@ export function useGlobalSearch(q: string) {
     enabled: !!ws && q.length > 0,
   })
 }
+
+// ---------------------------------------------------
+//  Integrations — real connection status from backend
+// ---------------------------------------------------
+export interface IntegrationStatus {
+  id: string
+  name: string
+  category: 'database' | 'ai' | 'version_control' | 'email' | 'chat' | 'cloud'
+  connected: boolean
+  details?: Record<string, string | number | boolean | null>
+  future?: boolean
+}
+
+export function useIntegrations() {
+  return useQuery({
+    queryKey: ['integrations'],
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/integrations`)
+      const j = await r.json()
+      return j.data as {
+        integrations: IntegrationStatus[]
+        summary: { total: number; connected: number; future: number }
+      }
+    },
+    staleTime: 60_000, // Cache for 1 minute — env vars don't change often
+  })
+}
+
