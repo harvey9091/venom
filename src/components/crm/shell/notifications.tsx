@@ -7,6 +7,7 @@ import { useNotifications, useNotificationMutations } from '@/lib/hooks'
 import { Avatar, relTime } from '@/components/crm/shared'
 import { CheckCheck, BellOff, Bell, AtSign, Zap, Settings as SettingsIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ThinkingState } from '@/components/crm/thinking'
 
 const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   mention: AtSign,
@@ -43,10 +44,8 @@ export function NotificationsInbox() {
         </SheetHeader>
         <div className="overflow-y-auto scroll-area h-[calc(100vh-60px)]">
           {isLoading && (
-            <div className="p-4 space-y-2">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-16 rounded-lg bg-muted/40 animate-pulse" />
-              ))}
+            <div className="flex flex-col items-center justify-center py-12">
+              <ThinkingState label="Syncing notifications…" size="md" variant="trio" theme="rainbow" />
             </div>
           )}
           {!isLoading && notifications.length === 0 && (

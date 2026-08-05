@@ -80,7 +80,21 @@ import {
   User as UserIcon,
   CircleDollarSign,
   ListChecks,
+  Mail,
+  Copy,
+  RefreshCw,
 } from 'lucide-react'
+import { ThinkingState } from '@/components/crm/thinking'
+import { simulateAIThinking, mockAIResponse } from '@/lib/ai-sim'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from '@/components/ui/dialog'
 
 // ----------------------------------------------------------------
 // Constants
@@ -376,6 +390,7 @@ export function DealDrawer({
             companies={companies}
             members={members}
             canCloseDeal={canCloseDeal}
+            deal={deal}
           />
         )}
         {tab === 'activity' && <ActivityTab dealId={id} />}
@@ -421,6 +436,7 @@ function OverviewTab({
   companies,
   members,
   canCloseDeal,
+  deal,
 }: {
   form: ReturnType<typeof useForm<DealFormValues>>
   pipelines: Pipeline[]
@@ -429,11 +445,72 @@ function OverviewTab({
   companies: any[]
   members: Membership[]
   canCloseDeal: boolean
+  deal?: Deal
 }) {
   const { register, control, formState: { errors } } = form
   const probability = form.watch('probability') || 0
   const amount = form.watch('amount') || 0
   const currency = form.watch('currency') || 'USD'
+
+  // AI email generator state — visual-only thinking orb while the mock
+  // outreach email is "written".
+  const { create: createNote } = useNoteMutations()
+  const user = useAppStore((s) => s.user)
+  const workspace = useAppStore((s) => s.workspace)
+
+  const [isGenerating, setIsGenerating] = React.useState(false)
+  const [genLabel, setGenLabel] = React.useState('Writing…')
+  const [emailDialogOpen, setEmailDialogOpen] = React.useState(false)
+  const [emailBody, setEmailBody] = React.useState('')
+
+  const runGenerate = async () => {
+    setIsGenerating(true)
+    setGenLabel('Writing…')
+    try {
+      await simulateAIThinking('email', {
+        duration: 1200,
+        onLabel: (label) => setGenLabel(label),
+      })
+      const contactName = deal?.contact?.firstName || 'the lead'
+      const body = mockAIResponse('Write outreach email to ' + contactName)
+      setEmailBody(body)
+      setEmailDialogOpen(true)
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(emailBody)
+      toast.success('Copied to clipboard')
+    } catch {
+      toast.error('Could not copy to clipboard')
+    }
+  }
+
+  const handleInsertAsNote = () => {
+    if (!deal?.id) {
+      toast.error('Save the deal first to insert a note')
+      return
+    }
+    createNote.mutate(
+      {
+        workspaceId: workspace?.id,
+        authorId: user?.id,
+        dealId: deal.id,
+        title: 'AI outreach email',
+        body: emailBody,
+      } as any,
+      {
+        onSuccess: () => {
+          toast.success('Email inserted as note')
+          setEmailDialogOpen(false)
+        },
+        onError: () => toast.error('Could not save note'),
+      },
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -713,6 +790,101 @@ function OverviewTab({
           </div>
         </div>
       </div>
+
+      {/* AI outreach */}
+      <div className="card-premium bg-card border border-border/60 rounded-xl p-5 shadow-soft">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              AI outreach
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+              Draft a personalized first-touch email to this deal’s contact.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 shrink-0"
+            onClick={runGenerate}
+            disabled={isGenerating}
+            aria-label="Generate outreach email"
+          >
+            {isGenerating ? (
+              <ThinkingState
+                compact
+                size="xs"
+                label={genLabel}
+                variant="trio"
+                theme="rainbow"
+              />
+            ) : (
+              <>
+                <Mail className="size-3.5" />
+                Generate outreach email
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      <Dialog open={emailDialogOpen} onOpenChange={setEmailDialogOpen}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="size-4" />
+              AI outreach email
+            </DialogTitle>
+            <DialogDescription>
+              Edit, copy, or save this draft as a note on the deal.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={emailBody}
+            onChange={(e) => setEmailBody(e.target.value)}
+            className="min-h-[260px] text-[12px] resize-none"
+          />
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={runGenerate}
+              disabled={isGenerating}
+            >
+              {isGenerating ? (
+                <ThinkingState
+                  compact
+                  size="xs"
+                  label={genLabel}
+                  variant="trio"
+                  theme="rainbow"
+                />
+              ) : (
+                <>
+                  <RefreshCw className="size-3.5" />
+                  Regenerate
+                </>
+              )}
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={handleCopy}>
+              <Copy className="size-3.5" /> Copy
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleInsertAsNote}
+              disabled={createNote.isPending || !deal?.id}
+            >
+              <StickyNote className="size-3.5" /> Insert as note
+            </Button>
+            <DialogClose asChild>
+              <Button type="button" variant="ghost" size="sm">Close</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

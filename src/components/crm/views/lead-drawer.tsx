@@ -51,7 +51,15 @@ import {
   Upload,
   Activity as ActivityIcon,
   User as UserIcon,
+  Sparkles,
 } from 'lucide-react'
+import { ThinkingState } from '@/components/crm/thinking'
+import { simulateAIThinking, mockAIResponse } from '@/lib/ai-sim'
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from '@/components/ui/collapsible'
 
 // ----------------------------------------------------------------
 // Constants
@@ -241,6 +249,11 @@ export function LeadDrawer({ id, mode, onClose }: { id?: string; mode?: 'create'
             removeTag={removeTag}
             companies={companies}
             members={members}
+            leadId={id}
+            leadName={lead?.fullName}
+            onScoreUpdate={(score) => {
+              if (id) update.mutate({ id, score } as any)
+            }}
           />
         )}
         {tab === 'activity' && <ActivityTab leadId={id} />}
@@ -282,6 +295,9 @@ function OverviewTab({
   removeTag,
   companies,
   members,
+  leadId,
+  leadName,
+  onScoreUpdate,
 }: {
   form: ReturnType<typeof useForm<LeadFormValues>>
   tags: string[]
@@ -291,9 +307,50 @@ function OverviewTab({
   removeTag: (t: string) => void
   companies: any[]
   members: Membership[]
+  leadId?: string
+  leadName?: string
+  onScoreUpdate?: (score: number) => void
 }) {
   const { register, control, formState: { errors } } = form
   const score = useWatchScore(form)
+
+  // AI scoring state — visual-only thinking orb while the mock score runs.
+  const [isScoring, setIsScoring] = React.useState(false)
+  const [scoreLabel, setScoreLabel] = React.useState('Analyzing…')
+  const [progress, setProgress] = React.useState(0)
+  const [insights, setInsights] = React.useState<string | null>(null)
+  const [insightsOpen, setInsightsOpen] = React.useState(false)
+
+  const handleScoreWithAI = async () => {
+    if (isScoring) return
+    setIsScoring(true)
+    setProgress(0)
+    setScoreLabel('Analyzing…')
+    try {
+      await simulateAIThinking('score', {
+        duration: 1100,
+        onLabel: (label, i, total) => {
+          setScoreLabel(label)
+          setProgress(Math.round(((i + 1) / total) * 100))
+        },
+      })
+      // Pull a mock response (firmographic-style summary) and derive a
+      // weighted score 65-95 influenced by the lead's name length.
+      const responseText = mockAIResponse('Score this lead')
+      const nameLen = (leadName || '').length || 8
+      const base = 65 + (nameLen % 10) * 2
+      const jitter = Math.floor(Math.random() * 12)
+      const newScore = Math.min(95, Math.max(65, base + jitter))
+      form.setValue('score', newScore, { shouldDirty: true })
+      if (leadId && onScoreUpdate) onScoreUpdate(newScore)
+      setInsights(responseText)
+      setInsightsOpen(true)
+      toast.success(`AI scored this lead: ${newScore}/100`)
+    } finally {
+      setIsScoring(false)
+      setProgress(0)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -349,9 +406,36 @@ function OverviewTab({
             />
           </div>
           <div className="col-span-2 space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <Label className="text-[12px]">Lead score</Label>
-              <span className="text-[11px] tabular-nums font-medium text-muted-foreground">{score}/100</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-[11px] px-2"
+                  onClick={handleScoreWithAI}
+                  disabled={isScoring}
+                  aria-label="Score with AI"
+                >
+                  {isScoring ? (
+                    <ThinkingState
+                      compact
+                      size="xs"
+                      label={scoreLabel}
+                      variant="trio"
+                      theme="rainbow"
+                      progress={progress}
+                    />
+                  ) : (
+                    <>
+                      <Sparkles className="size-3" />
+                      Score with AI
+                    </>
+                  )}
+                </Button>
+                <span className="text-[11px] tabular-nums font-medium text-muted-foreground">{score}/100</span>
+              </div>
             </div>
             <Controller
               control={control}
@@ -371,6 +455,28 @@ function OverviewTab({
               <span>Warm</span>
               <span>Hot</span>
             </div>
+            {insights && (
+              <Collapsible
+                open={insightsOpen}
+                onOpenChange={setInsightsOpen}
+                className="mt-1 rounded-lg border border-primary/20 bg-primary/5"
+              >
+                <CollapsibleTrigger className="flex w-full items-center justify-between px-3 py-2 text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Sparkles className="size-3" />
+                    AI Insights
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {insightsOpen ? 'Hide' : 'Show'}
+                  </span>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="px-3 pb-3 pt-1">
+                  <p className="text-[11px] text-foreground/80 whitespace-pre-wrap leading-relaxed">
+                    {insights}
+                  </p>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
           </div>
           <div className="col-span-2 space-y-1.5">
             <Label htmlFor="estimatedValue" className="text-[12px]">Estimated value (USD)</Label>

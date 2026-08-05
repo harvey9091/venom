@@ -49,6 +49,8 @@ import {
 import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { ThinkingState } from '@/components/crm/thinking'
+import { useThinkingStore, useThinkingTask } from '@/lib/thinking'
 import type { Membership, AuditLog } from '@/lib/types'
 import {
   Upload,
@@ -347,7 +349,7 @@ function UploadStep({
   }
 
   return (
-    <div className="max-w-3xl mx-auto w-full">
+    <div className="relative max-w-3xl mx-auto w-full">
       <div className="text-center mb-6">
         <h2 className="text-lg font-semibold">Upload your CSV</h2>
         <p className="text-sm text-muted-foreground mt-1">
@@ -492,6 +494,16 @@ function UploadStep({
           )}
         </Button>
       </div>
+
+      {isPending && (
+        <ThinkingState
+          label="Reading CSV…"
+          size="lg"
+          variant="orbit"
+          theme="rainbow"
+          overlay
+        />
+      )}
     </div>
   )
 }
@@ -939,6 +951,16 @@ function DoneStep({
     onError: () => toast.error('Could not undo import'),
   })
 
+  const [undoingId, setUndoingId] = React.useState<string | null>(null)
+
+  const handleUndo = (logId: string) => {
+    setUndoingId(logId)
+    setTimeout(() => {
+      undoMutation.mutate(logId)
+      setUndoingId(null)
+    }, 600)
+  }
+
   const rows = history || []
 
   return (
@@ -1064,11 +1086,17 @@ function DoneStep({
                             variant="ghost"
                             size="sm"
                             className="h-7 text-[11px] text-muted-foreground hover:text-rose-600"
-                            disabled={undoMutation.isPending}
-                            onClick={() => undoMutation.mutate(log.id)}
+                            disabled={undoMutation.isPending || undoingId === log.id}
+                            onClick={() => handleUndo(log.id)}
                           >
-                            <Undo2 size={12} />
-                            Undo
+                            {undoingId === log.id ? (
+                              <ThinkingState compact size="xs" label="Reverting…" variant="pulse" />
+                            ) : (
+                              <>
+                                <Undo2 size={12} />
+                                Undo
+                              </>
+                            )}
                           </Button>
                         )}
                       </TableCell>
@@ -1092,6 +1120,18 @@ export function ImportView() {
   const workspace = useAppStore((s) => s.workspace)
   const navigate = useAppStore((s) => s.navigate)
   const qc = useQueryClient()
+
+  const { startSequence } = useThinkingTask()
+  const stopAll = useThinkingStore((s) => s.stopAll)
+  const foregroundTask = useThinkingStore((s) => {
+    const tasks = s.tasks
+    return (
+      tasks.find((t) => t.priority === 'foreground') ||
+      tasks.find((t) => t.priority === 'critical') ||
+      tasks[tasks.length - 1]
+    )
+  })
+  const [isImporting, setIsImporting] = React.useState(false)
 
   const { data: membersData } = useSettings('members')
   const members = (membersData as Membership[] | undefined) || []
@@ -1232,6 +1272,27 @@ export function ImportView() {
     setImportResult(null)
   }
 
+  const handleImport = () => {
+    setIsImporting(true)
+    startSequence(
+      [
+        'Reading CSV…',
+        'Mapping columns…',
+        'Validating emails…',
+        'Detecting duplicates…',
+        'Importing rows…',
+        'Finalizing import…',
+      ],
+      { duration: 1200, variant: 'orbit', size: 'xl', priority: 'foreground' },
+    ).finally(() => setIsImporting(false))
+    importMutation.mutate(undefined, {
+      onError: () => {
+        stopAll()
+        setIsImporting(false)
+      },
+    })
+  }
+
   const totalForReview = preview?.totalRows ?? allRows.length
 
   return (
@@ -1256,7 +1317,7 @@ export function ImportView() {
       <Separator className="mb-6" />
 
       {/* Step content */}
-      <div className="flex-1 px-4 sm:px-6 lg:px-8 pb-10">
+      <div className="relative flex-1 px-4 sm:px-6 lg:px-8 pb-10">
         <AnimatePresence mode="wait">
           <motion.div
             key={step}
@@ -1300,8 +1361,8 @@ export function ImportView() {
                 duplicateMode={duplicateMode}
                 setDuplicateMode={setDuplicateMode}
                 onBack={() => setStep(2)}
-                onImport={() => importMutation.mutate()}
-                isImporting={importMutation.isPending}
+                onImport={handleImport}
+                isImporting={isImporting}
               />
             )}
             {step === 4 && importResult && workspace && (
@@ -1315,6 +1376,17 @@ export function ImportView() {
             )}
           </motion.div>
         </AnimatePresence>
+
+        {isImporting && step === 3 && (
+          <ThinkingState
+            label={foregroundTask?.label || 'Reading CSV…'}
+            size="xl"
+            variant="orbit"
+            theme="rainbow"
+            progress={foregroundTask?.progress}
+            overlay
+          />
+        )}
       </div>
 
       {/* Footer */}

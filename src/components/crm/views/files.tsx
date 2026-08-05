@@ -53,6 +53,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { ThinkingState } from '@/components/crm/thinking'
+import { simulateAIThinking } from '@/lib/ai-sim'
 import type { CRMFile } from '@/lib/types'
 import {
   Upload,
@@ -151,10 +153,47 @@ interface UploadingItem {
   name: string
   size: number
   progress: number
+  phase: 'uploading' | 'scanning' | 'generating'
+  label?: string
+  fileId?: string
 }
 
 function UploadingCard({ item }: { item: UploadingItem }) {
   const { Icon, bg, fg } = fileIconFor('')
+  if (item.phase === 'scanning') {
+    return (
+      <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4 shadow-soft">
+        <div className="flex items-center gap-3">
+          <div className={cn('size-10 rounded-lg grid place-items-center shrink-0', bg, fg)}>
+            <Icon className="size-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[12px] font-medium truncate">{item.name}</div>
+            <div className="mt-1">
+              <ThinkingState compact size="xs" label={item.label || 'Scanning file…'} variant="pulse" />
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  if (item.phase === 'generating') {
+    return (
+      <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4 shadow-soft">
+        <div className="flex items-center gap-3">
+          <div className={cn('size-10 rounded-lg grid place-items-center shrink-0', bg, fg)}>
+            <Icon className="size-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[12px] font-medium truncate">{item.name}</div>
+            <div className="mt-1">
+              <ThinkingState compact size="xs" label="Generating preview…" variant="pulse" />
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="rounded-xl border border-dashed border-primary/40 bg-primary/5 p-4 shadow-soft">
       <div className="flex items-center gap-3">
@@ -165,6 +204,9 @@ function UploadingCard({ item }: { item: UploadingItem }) {
           <div className="text-[12px] font-medium truncate">{item.name}</div>
           <div className="text-[11px] text-muted-foreground">{formatSize(item.size)} · uploading…</div>
           <Progress value={item.progress} className="mt-1.5 h-1" />
+          <div className="mt-1.5">
+            <ThinkingState compact size="xs" label="Uploading…" variant="trio" theme="primary" />
+          </div>
         </div>
       </div>
     </div>
@@ -483,8 +525,20 @@ function FilesTable({ files, uploading }: { files: CRMFile[]; uploading: Uploadi
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="text-[12px] font-medium truncate">{u.name}</div>
-                          <Progress value={u.progress} className="mt-1 h-1 max-w-[260px]" />
+                          {u.phase === 'uploading' && (
+                            <Progress value={u.progress} className="mt-1 h-1 max-w-[260px]" />
+                          )}
                         </div>
+                        {u.phase === 'uploading' ? (
+                          <ThinkingState compact size="xs" label="Uploading…" variant="trio" theme="primary" />
+                        ) : (
+                          <ThinkingState
+                            compact
+                            size="xs"
+                            label={u.phase === 'scanning' ? (u.label || 'Scanning file…') : 'Generating preview…'}
+                            variant="pulse"
+                          />
+                        )}
                         <span className="text-[11px] text-muted-foreground">{formatSize(u.size)}</span>
                       </div>
                     </TableCell>
@@ -701,15 +755,28 @@ export function FilesView() {
 
   const debouncedQ = useDebounced(q, 300)
 
+  // Hide files that are currently in the "generating preview" phase so the
+  // thinking indicator shows in place of the card for ~500ms before the card appears.
+  const hiddenFileIds = React.useMemo(
+    () =>
+      uploading
+        .filter((u) => u.phase === 'generating' && u.fileId)
+        .map((u) => u.fileId as string),
+    [uploading],
+  )
+
   const filtered = React.useMemo(() => {
-    if (!debouncedQ.trim()) return files
+    const base = hiddenFileIds.length
+      ? files.filter((f) => !hiddenFileIds.includes(f.id))
+      : files
+    if (!debouncedQ.trim()) return base
     const needle = debouncedQ.toLowerCase()
-    return files.filter(
+    return base.filter(
       (f) =>
         f.name.toLowerCase().includes(needle) ||
         f.mimeType.toLowerCase().includes(needle),
     )
-  }, [files, debouncedQ])
+  }, [files, hiddenFileIds, debouncedQ])
 
   const startUpload = React.useCallback(
     (file: File) => {
@@ -723,6 +790,7 @@ export function FilesView() {
         name: file.name,
         size: file.size,
         progress: 0,
+        phase: 'uploading',
       }
       setUploading((prev) => [...prev, item])
 
@@ -738,28 +806,54 @@ export function FilesView() {
         if (pct < 100) {
           requestAnimationFrame(tick)
         } else {
-          // Create the file record
-          create.mutate(
-            {
-              workspaceId: workspace.id,
-              uploaderId: user.id,
-              name: file.name,
-              mimeType: file.type || 'application/octet-stream',
-              size: file.size,
-              url: `https://files.pulsecrm.app/${Date.now()}-${encodeURIComponent(file.name)}`,
-              version: 1,
-            } as Partial<CRMFile>,
-            {
-              onSuccess: () => {
-                setUploading((prev) => prev.filter((u) => u.uid !== uid))
-                toast.success(`Uploaded ${file.name}`)
-              },
-              onError: () => {
-                setUploading((prev) => prev.filter((u) => u.uid !== uid))
-                toast.error(`Upload failed for ${file.name}`)
-              },
-            },
+          // Transition to scanning phase — brief AI thinking with rotating labels
+          setUploading((prev) =>
+            prev.map((u) =>
+              u.uid === uid ? { ...u, phase: 'scanning', label: 'Scanning file…' } : u,
+            ),
           )
+          simulateAIThinking('upload', {
+            duration: 400,
+            onLabel: (l) => {
+              setUploading((prev) =>
+                prev.map((u) => (u.uid === uid ? { ...u, label: l } : u)),
+              )
+            },
+          }).then(() => {
+            // Create the file record
+            create.mutate(
+              {
+                workspaceId: workspace.id,
+                uploaderId: user.id,
+                name: file.name,
+                mimeType: file.type || 'application/octet-stream',
+                size: file.size,
+                url: `https://files.pulsecrm.app/${Date.now()}-${encodeURIComponent(file.name)}`,
+                version: 1,
+              } as Partial<CRMFile>,
+              {
+                onSuccess: (data) => {
+                  const fileId = (data as { id?: string } | undefined)?.id
+                  // Transition to generating-preview phase
+                  setUploading((prev) =>
+                    prev.map((u) =>
+                      u.uid === uid
+                        ? { ...u, phase: 'generating', label: 'Generating preview…', fileId }
+                        : u,
+                    ),
+                  )
+                  setTimeout(() => {
+                    setUploading((prev) => prev.filter((u) => u.uid !== uid))
+                    toast.success(`Uploaded ${file.name}`)
+                  }, 500)
+                },
+                onError: () => {
+                  setUploading((prev) => prev.filter((u) => u.uid !== uid))
+                  toast.error(`Upload failed for ${file.name}`)
+                },
+              },
+            )
+          })
         }
       }
       requestAnimationFrame(tick)

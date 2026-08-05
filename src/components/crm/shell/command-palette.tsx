@@ -8,6 +8,7 @@ import {
   Paperclip, Workflow, Upload, Settings, Search, ArrowRight, Sparkles,
 } from 'lucide-react'
 import { Avatar } from '@/components/crm/shared'
+import { Orb } from '@/components/crm/thinking'
 import { useState } from 'react'
 
 const NAV_ITEMS = [
@@ -31,9 +32,13 @@ export function CommandPalette() {
   const setOpen = useAppStore((s) => s.setCommandOpen)
   const navigate = useAppStore((s) => s.navigate)
   const openDrawer = useAppStore((s) => s.openDrawer)
+  const openAssistant = useAppStore((s) => s.openAssistant)
   const [q, setQ] = useState('')
 
-  const { data: results } = useGlobalSearch(open ? q : '')
+  const { data: results, isFetching } = useGlobalSearch(open ? q : '')
+
+  // Compact orb inside the search bar while fetching
+  const searchThinking = q.length > 0 && isFetching
 
   // Reset the search query whenever the palette closes — done via onOpenChange
   // callback rather than an effect to avoid the "setState in effect" lint error.
@@ -43,14 +48,57 @@ export function CommandPalette() {
     setOpen(false)
   }
 
+  const askAI = (prompt?: string) => {
+    openAssistant(prompt || q)
+    setOpen(false)
+    setQ('')
+  }
+
   return (
     <CommandDialog open={open} onOpenChange={(v) => { if (!v) setQ(''); setOpen(v) }}>
-      <CommandInput placeholder="Search anything or jump to…" value={q} onValueChange={setQ} />
+      <div className="relative">
+        <CommandInput placeholder="Search anything, jump to, or ask AI…" value={q} onValueChange={setQ} />
+        {searchThinking && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+            <Orb size="xs" variant="trio" theme="rainbow" animated />
+          </div>
+        )}
+      </div>
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
+        <CommandEmpty>
+          {q ? (
+            <div className="py-4 text-center">
+              <p className="text-sm text-muted-foreground">No matches for “{q}”.</p>
+              <button
+                onClick={() => askAI()}
+                className="mt-2 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+              >
+                <Sparkles size={12} /> Ask AI instead
+              </button>
+            </div>
+          ) : (
+            'No results found.'
+          )}
+        </CommandEmpty>
 
         {!q && (
           <>
+            <CommandGroup heading="Ask AI">
+              <CommandItem onSelect={() => askAI('Summarize my week')}>
+                <Sparkles size={14} /><span>Summarize my week</span>
+              </CommandItem>
+              <CommandItem onSelect={() => askAI('Score my top leads')}>
+                <Sparkles size={14} /><span>Score my top leads</span>
+              </CommandItem>
+              <CommandItem onSelect={() => askAI('Draft an outreach email')}>
+                <Sparkles size={14} /><span>Draft an outreach email</span>
+              </CommandItem>
+              <CommandItem onSelect={() => askAI()}>
+                <Sparkles size={14} /><span>Open AI Assistant…</span>
+                <kbd className="ml-auto text-[10px] px-1 py-0.5 rounded bg-background border border-border">⌘J</kbd>
+              </CommandItem>
+            </CommandGroup>
+            <CommandSeparator />
             <CommandGroup heading="Quick Actions">
               <CommandItem onSelect={() => go('dashboard')}>
                 <LayoutDashboard size={14} /><span>Open Dashboard</span>
@@ -78,6 +126,13 @@ export function CommandPalette() {
 
         {q && results && (
           <>
+            {/* Always show "Ask AI: <query>" at the top */}
+            <CommandGroup heading="Ask AI">
+              <CommandItem onSelect={() => askAI()}>
+                <Sparkles size={14} /><span>Ask AI: “{q}”</span>
+              </CommandItem>
+            </CommandGroup>
+            <CommandSeparator />
             {results.leads?.length > 0 && (
               <CommandGroup heading="Leads">
                 {results.leads.slice(0, 5).map((l) => (
@@ -150,3 +205,4 @@ export function CommandPalette() {
     </CommandDialog>
   )
 }
+

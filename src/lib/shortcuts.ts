@@ -1,7 +1,7 @@
 /**
  * Global keyboard shortcuts.
  *   ⌘K / Ctrl+K  — open command palette
- *   ⌘N          — new (contextual)
+ *   ⌘J / Ctrl+J  — open AI Assistant
  *   g d / g c / g l / g p / g t / g a  — go to dashboard / companies / leads / pipeline / tasks / automations
  *   ⌘\          — toggle sidebar
  *   ⌘/          — show shortcuts help
@@ -16,6 +16,8 @@ export function useKeyboardShortcuts() {
   const setCommandOpen = useAppStore((s) => s.setCommandOpen)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const commandOpen = useAppStore((s) => s.commandOpen)
+  const openAssistant = useAppStore((s) => s.openAssistant)
+  const assistantOpen = useAppStore((s) => s.assistantOpen)
 
   useEffect(() => {
     let gPressed = false
@@ -29,6 +31,13 @@ export function useKeyboardShortcuts() {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
         setCommandOpen(!commandOpen)
+        return
+      }
+
+      // ⌘J / Ctrl+J — AI Assistant
+      if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
+        e.preventDefault()
+        useAppStore.getState().setAssistantOpen(!useAppStore.getState().assistantOpen)
         return
       }
 
@@ -72,5 +81,6 @@ export function useKeyboardShortcuts() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [navigate, setCommandOpen, toggleSidebar, commandOpen])
+  }, [navigate, setCommandOpen, toggleSidebar, commandOpen, openAssistant, assistantOpen])
 }
+

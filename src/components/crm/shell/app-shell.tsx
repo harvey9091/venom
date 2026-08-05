@@ -12,6 +12,7 @@ import { useKeyboardShortcuts } from '@/lib/shortcuts'
 import { CommandPalette } from './command-palette'
 import { NotificationsInbox } from './notifications'
 import { ThemeSwitcher } from './theme-switcher'
+import { ThinkingIndicator, AIAssistant } from '@/components/crm/thinking'
 import { useEffect, useState } from 'react'
 import { useRealtime } from '@/lib/realtime'
 
@@ -187,6 +188,7 @@ function TopBar() {
           <span className="text-muted-foreground hidden sm:inline">{connected ? 'Live' : 'Syncing'}</span>
         </div>
         <ThemeSwitcher />
+        <ThinkingIndicator />
         <button
           onClick={() => setNotifOpen(true)}
           className="relative p-2 rounded-lg hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
@@ -226,6 +228,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <CommandPalette />
       <NotificationsInbox />
+      <AIAssistant />
     </div>
   )
 }

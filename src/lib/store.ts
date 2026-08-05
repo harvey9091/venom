@@ -53,6 +53,12 @@ interface AppState {
   // Realtime
   realtimeConnected: boolean
   setRealtimeConnected: (v: boolean) => void
+
+  // AI Assistant drawer
+  assistantOpen: boolean
+  setAssistantOpen: (v: boolean) => void
+  assistantSeedPrompt: string | null
+  openAssistant: (seedPrompt?: string) => void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -113,4 +119,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   realtimeConnected: false,
   setRealtimeConnected: (realtimeConnected) => set({ realtimeConnected }),
+
+  assistantOpen: false,
+  setAssistantOpen: (assistantOpen) => set({ assistantOpen }),
+  assistantSeedPrompt: null,
+  openAssistant: (seedPrompt) => set({ assistantOpen: true, assistantSeedPrompt: seedPrompt || null }),
 }))

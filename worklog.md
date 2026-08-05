@@ -846,3 +846,127 @@ Final: **0 errors, 0 warnings** ✅
 - The `DangerZoneSection`'s delete-workspace button stays on the page after deletion (no navigation) because the spec says "don't actually navigate away since there's no other workspace in this demo." If multi-workspace support is added later, swap the `onSuccess` to call `navigate('dashboard')` or similar after invalidating the bootstrap query.
 - The `PipelinesSection` stage editor sends `stages` to `PATCH /api/crm/pipelines` — the backend deletes all existing stages then recreates them in order. The `id` field on each stage is included in the payload but ignored by the backend (it generates fresh IDs). Don't try to patch a single stage in place — there's no per-stage endpoint.
 - The `NotificationsSection` and `IntegrationsSection` are UI-only — there's no backend for either. If you wire them up, the notification matrix state lives in `useState` (initialize from a future `useSettings('notifications')` call) and the integrations connection state lives in `useState` (initialize from a future `useSettings('integrations')` call).
+
+---
+
+## Task ID: thinking-1 — Integrate Thinking Orbs into Dashboard, CSV Import, and Files views
+
+**Agent:** full-stack-developer
+**Task:** thinking-1
+**Date:** 2025
+
+### Work Log
+
+1. Read the Thinking Orb system files to understand the public API:
+   - `src/components/crm/thinking/index.ts` (barrel export)
+   - `src/components/crm/thinking/orb.tsx` (`Orb` primitive — variants: trio/single/orbit/pulse; sizes: xs/sm/md/lg/xl; themes: primary/rainbow/mono)
+   - `src/components/crm/thinking/thinking-state.tsx` (`<ThinkingState />` props: state/label, size, variant, theme, animated, fullscreen, compact, overlay, progress, className, children; `<ThinkingSwap isThinking label>`)
+   - `src/lib/thinking.ts` (Zustand store; `useThinkingTask()` → `{ start, stop, update, startSequence(labels, { duration, variant, size, priority }) }`; `useThinkingStore` exposes `tasks`, `stopAll`, `foregroundTask()`)
+   - `src/lib/ai-sim.ts` (`simulateAIThinking(category, { duration, onLabel })`; categories include `upload`/`csv`/`search`/`analyze`/etc.)
+2. Read the 3 target view files (`dashboard.tsx`, `import.tsx`, `files.tsx`) in full.
+3. Confirmed `useDashboard()` returns `{ data, isLoading, refetch }` and `useFileMutations().create`'s `onSuccess` invalidates `['files']` (so newly-created files appear in the grid immediately — required filtering to hide them during the 500ms "Generating preview…" phase).
+4. Made all edits with `Edit`/`MultiEdit` only — no files rewritten.
+
+### Changes
+
+**`src/components/crm/views/dashboard.tsx`**
+- Added `SkeletonWithOrb` helper: each skeleton card now shows a `<ThinkingState compact size="sm" variant="trio" theme="primary" />` orb in the top-left, signalling the system is computing the widget's data. All 8 skeleton cards upgraded.
+- Added a floating refresh button (top-right of dashboard content area, `absolute z-30`). On click: `startSequence(['Refreshing charts…', 'Recomputing KPIs…', 'Updating dashboard…'], { duration: 800, variant: 'trio', size: 'sm', priority: 'background' })` runs in parallel with `refetch()`. While refreshing, a `<ThinkingState compact size="xs" variant="pulse" />` appears next to the button and the `RotateCcw` icon spins.
+
+**`src/components/crm/views/import.tsx`**
+- **Step 1 → 2 (preview)**: `<ThinkingState label="Reading CSV…" size="lg" variant="orbit" theme="rainbow" overlay />` shown over the upload step while the preview mutation is pending (uses `overlay` prop, not `fullscreen`).
+- **Step 3 → 4 (import)**: `handleImport` sets `isImporting=true`, calls `startSequence(['Reading CSV…', 'Mapping columns…', 'Validating emails…', 'Detecting duplicates…', 'Importing rows…', 'Finalizing import…'], { duration: 1200, variant: 'orbit', size: 'xl', priority: 'foreground' })`, then `importMutation.mutate()`. The overlay reads the rotating label + progress from the global thinking store (`foregroundTask`). On mutation error, `stopAll()` aborts the sequence early.
+- **Undo button**: shows `<ThinkingState compact size="xs" label="Reverting…" variant="pulse" />` inside the button for 600ms before calling `undoMutation.mutate`.
+
+**`src/components/crm/views/files.tsx`**
+- Extended `UploadingItem` with a `phase` field (`uploading` → `scanning` → `generating`).
+- `UploadingCard` now renders by phase: `uploading` shows the progress bar + `<ThinkingState compact size="xs" label="Uploading…" variant="trio" theme="primary" />`; `scanning` shows a pulse orb with rotating labels; `generating` shows `<ThinkingState compact size="xs" label="Generating preview…" variant="pulse" />`.
+- After upload progress hits 100%, runs `simulateAIThinking('upload', { duration: 400, onLabel })` (scan phase), then `create.mutate`, then a 500ms "Generating preview…" phase before the file card appears.
+- Added `hiddenFileIds` filter so the real file card is suppressed during the 500ms generating phase (otherwise it would appear immediately when the `['files']` query invalidates).
+- List-view uploading row updated with the same phase-based ThinkingStates.
+
+### Constraints honored
+
+- ✅ `Edit`/`MultiEdit` tools only — no files rewritten.
+- ✅ All files already had `'use client'`.
+- ✅ Imported from `@/components/crm/thinking` (barrel), `@/lib/thinking`, `@/lib/ai-sim`.
+- ✅ Used `overlay` prop (not `fullscreen`) for all in-view overlays.
+- ✅ `<ThinkingState />` auto-respects `prefers-reduced-motion`.
+- ✅ No other files modified (worklog + agent-ctx only).
+
+### Lint
+
+`bunx eslint src/components/crm/views/dashboard.tsx src/components/crm/views/import.tsx src/components/crm/views/files.tsx` → **0 errors, 1 warning**. The single warning is a pre-existing `react-hooks/incompatible-library` on `useReactTable()` in `files.tsx` (present before this task; unrelated to Thinking Orb integration).
+
+### Dev server
+
+`✓ Compiled in 1442ms` — no compilation errors. Dashboard API returns 200.
+
+### Hand-off notes
+
+- Dashboard refresh uses `priority: 'background'` (shows in topbar but doesn't claim foreground). Import sequence uses `priority: 'foreground'` (primary active task while importing).
+- The files view's scan phase uses the `upload` category labels from `THINKING_LABELS` (`Uploading file…` / `Scanning for threats…` / `Generating preview…`) rotating at 400ms each — as specified by the task's `simulateAIThinking('upload', { duration: 400, onLabel })` instruction.
+- The import overlay reads its label/progress from the global thinking store, not local state — driven entirely by `startSequence`'s internal timer. Edit the labels array in `handleImport` to customize.
+- Full work record: `/home/z/my-project/agent-ctx/thinking-1-full-stack-developer.md`.
+
+---
+
+## Task ID: thinking-2 — Integrate Thinking Orbs into Lead Drawer, Deal Drawer, and Automation Builder
+
+**Agent:** full-stack-developer
+**Task:** wire the reusable Thinking Orb system into three CRM surfaces (AI Lead Scoring, AI Email Generator, Automation Save/Test)
+**Date:** 2025
+
+### Work Log
+
+1. Read the required context files:
+   - `src/components/crm/thinking/index.ts` (barrel export: `ThinkingState`, `ThinkingSwap`, `Orb`, etc.)
+   - `src/components/crm/thinking/thinking-state.tsx` (props: `state`/`label`, `size`, `variant`, `theme`, `animated`, `fullscreen`, `compact`, `overlay`, `progress`, `className`)
+   - `src/lib/thinking.ts` (`useThinkingTask()` → `{ start, stop, update, startSequence }`)
+   - `src/lib/ai-sim.ts` (`simulateAIThinking(category, { duration, onLabel })`, `mockAIResponse(prompt)`; categories include `score` / `email` / `automation`)
+   - `src/components/crm/views/lead-drawer.tsx`, `deal-drawer.tsx`, `automations.tsx` (the three target files)
+   - `src/lib/hooks.ts` (confirmed `useLeadMutations`, `useNoteMutations`, `useAutomationMutations` — all expose `.mutate` and `.mutateAsync`)
+   - `src/lib/types.ts` (confirmed `Note` shape with `workspaceId`, `authorId`, `dealId`, `title`, `body`)
+   - `src/lib/store.ts` (confirmed `useAppStore` exposes `user` and `workspace`)
+   - `src/components/ui/collapsible.tsx`, `dialog.tsx` (confirmed shadcn primitives exist)
+
+2. **`lead-drawer.tsx`** — AI Lead Scoring integration:
+   - Added imports: `Sparkles` (lucide), `ThinkingState` (`@/components/crm/thinking`), `simulateAIThinking` + `mockAIResponse` (`@/lib/ai-sim`), `Collapsible` + `CollapsibleTrigger` + `CollapsibleContent` (`@/components/ui/collapsible`).
+   - Extended `OverviewTab` props with `leadId`, `leadName`, `onScoreUpdate` so it can persist a server-side score update.
+   - Added a `Score with AI` button (Sparkles icon, `variant="outline" size="sm"`) placed next to the score readout in the Lead details card. While scoring, the button content swaps to `<ThinkingState compact size="xs" label={scoreLabel} variant="trio" theme="rainbow" progress={progress} />`. Labels cycle through the four `score` labels ("Scoring companies…", "Analyzing website…", "Estimating budget…", "Generating insights…") and the progress ring fills 0→100.
+   - `handleScoreWithAI` runs `simulateAIThinking('score', { duration: 1100, onLabel })`, then pulls a mock response via `mockAIResponse('Score this lead')`, derives a weighted 65–95 score from the lead's name length, calls `form.setValue('score', newScore)` + `onScoreUpdate(newScore)` (which fires `update.mutate({ id, score })`), toasts `AI scored this lead: NN/100`, and reveals a Collapsible "AI Insights" panel below the slider that shows the full mock response text. Re-enabled on `finally`.
+   - Parent `LeadDrawer` now passes `leadId={id}`, `leadName={lead?.fullName}`, and `onScoreUpdate` to `OverviewTab`.
+
+3. **`deal-drawer.tsx`** — AI Email Generator integration:
+   - Added imports: `Mail`, `Copy`, `RefreshCw` (lucide), `ThinkingState` (`@/components/crm/thinking`), `simulateAIThinking` + `mockAIResponse` (`@/lib/ai-sim`), `Dialog` + `DialogContent` + `DialogHeader` + `DialogTitle` + `DialogDescription` + `DialogFooter` + `DialogClose` (`@/components/ui/dialog`).
+   - Extended `OverviewTab` props with `deal?: Deal` so the generator can read `deal.contact?.firstName` and `deal.id`. Parent now passes `deal={deal}`.
+   - Added a new "AI outreach" card after the "Ownership & links" card containing a `Generate outreach email` button (Mail icon, `variant="outline" size="sm"`). While generating, button content swaps to `<ThinkingState compact size="xs" label={genLabel} variant="trio" theme="rainbow" />`. Labels cycle through the three `email` labels ("Writing personalized email…", "Adjusting tone…", "Polishing draft…").
+   - `runGenerate` runs `simulateAIThinking('email', { duration: 1200, onLabel })`, then calls `mockAIResponse('Write outreach email to ' + (deal.contact?.firstName || 'the lead'))`, sets the body into state, and opens a `Dialog`.
+   - The Dialog hosts an editable `<Textarea>` pre-filled with the email body plus four actions:
+     - **Regenerate** — re-runs the thinking sequence + fetches a new mock response (button itself shows the orb while running).
+     - **Copy** — `navigator.clipboard.writeText(emailBody)` + toast.
+     - **Insert as note** — `useNoteMutations().create.mutate({ workspaceId, authorId: user.id, dealId: deal.id, title: 'AI outreach email', body: emailBody })` then closes the dialog on success.
+     - **Close** — `DialogClose` ghost button.
+   - `useAppStore` is used to read `user` and `workspace` (matches the pattern in `TasksTab`).
+
+4. **`automations.tsx`** — Save + Run now thinking orbs:
+   - Added imports: `ThinkingState` (`@/components/crm/thinking`), `simulateAIThinking` (`@/lib/ai-sim`).
+   - Extended `EditorTopBar` props with `isSaving`, `isRunning`, `saveLabel`, `runLabel` and rewrote the two action buttons to swap their inner content with a compact `<ThinkingState />` while the corresponding flag is set. Save uses `theme="primary"`, Run now uses `theme="rainbow"` (per spec). Buttons get `min-w-[88px]` / `min-w-[104px]` so they don't jump when the orb replaces the text.
+   - In `AutomationEditor`, added four state slots: `isSaving`, `isRunning`, `saveLabel`, `runLabel`.
+   - Rewrote `handleSave` as `async`: sets `isSaving`, records start time, awaits `update.mutateAsync(...)`, then if total elapsed < 600ms sleeps the remainder so the orb is visible for at least 600ms total (the spec's "or until the mutation resolves, whichever is longer" rule), toasts "Automation saved", and clears the flag in `finally`. Errors are caught and toasted as "Could not save automation".
+   - Rewrote `handleRunNow` as `async`: sets `isRunning`, calls `simulateAIThinking('automation', { duration: 1000, onLabel: (label) => setRunLabel(label) })` so labels cycle through 'Checking workflow…' → 'Validating conditions…' → 'Testing execution…', toasts "Test run completed" (chose the clearer of the two suggested messages), clears flag in `finally`.
+   - Passed `isSaving` / `isRunning` / `saveLabel` / `runLabel` to `<EditorTopBar>`.
+   - Skipped the optional "validation indicator" sub-task — the spec allowed skipping when complex, and adding a debounced graph-validity watcher with a red-themed orb would have introduced additional state plumbing through the editor without clear product value. Can be added later as a follow-up.
+
+### Files Modified
+
+- `src/components/crm/views/lead-drawer.tsx` — imports + OverviewTab props/state/handler + Score with AI button + AI Insights Collapsible.
+- `src/components/crm/views/deal-drawer.tsx` — imports + OverviewTab props/state/handlers + AI outreach card + email Dialog.
+- `src/components/crm/views/automations.tsx` — imports + EditorTopBar props/UI + AutomationEditor state + async `handleSave`/`handleRunNow`.
+
+### Verification
+
+- `bunx eslint src/components/crm/views/lead-drawer.tsx src/components/crm/views/deal-drawer.tsx src/components/crm/views/automations.tsx` → **0 errors, 1 warning** (the warning is the pre-existing `react-hooks/incompatible-library` notice on `form.watch('stageId')` at `deal-drawer.tsx:191`, which predates this task and is not introduced by these edits).
+- Dev server recompiled successfully after the edits (`✓ Compiled in 1346ms`).
+- All three integrations respect `prefers-reduced-motion` automatically via `<ThinkingState />`'s `useReducedMotion()` check.
+- All thinking states are visual-only; the parent buttons stay disabled during the async operation so the user cannot double-fire, but the rest of the drawer/editor remains fully interactive (the orb never blocks pointer events in `compact` mode).

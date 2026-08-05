@@ -39,6 +39,8 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { ThinkingState } from '@/components/crm/thinking'
+import { simulateAIThinking } from '@/lib/ai-sim'
 import {
   Plus, Pencil, Trash2, ChevronLeft, Save, Play, Undo2, Redo2,
   ZoomIn, ZoomOut, Maximize2, Workflow, Zap, Split, Copy, X,
@@ -1419,6 +1421,7 @@ function RunLog({ runs, open, onToggle }: {
 function EditorTopBar({
   name, description, enabled, canUndo, canRedo,
   onName, onDescription, onEnabled, onUndo, onRedo, onSave, onRunNow, onBack,
+  isSaving, isRunning, saveLabel, runLabel,
 }: {
   name: string
   description: string
@@ -1433,6 +1436,10 @@ function EditorTopBar({
   onSave: () => void
   onRunNow: () => void
   onBack: () => void
+  isSaving?: boolean
+  isRunning?: boolean
+  saveLabel?: string
+  runLabel?: string
 }) {
   return (
     <div className="h-14 shrink-0 border-b border-border/60 bg-card/50 backdrop-blur flex items-center gap-2 px-3">
@@ -1466,11 +1473,46 @@ function EditorTopBar({
           <span className="text-[11px] text-muted-foreground">Enabled</span>
           <Switch checked={enabled} onCheckedChange={onEnabled} />
         </label>
-        <Button variant="outline" size="sm" className="h-8" onClick={onRunNow}>
-          <Play size={13} /> Run now
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 min-w-[104px]"
+          onClick={onRunNow}
+          disabled={isRunning}
+        >
+          {isRunning ? (
+            <ThinkingState
+              compact
+              size="xs"
+              label={runLabel || 'Checking…'}
+              variant="trio"
+              theme="rainbow"
+            />
+          ) : (
+            <>
+              <Play size={13} /> Run now
+            </>
+          )}
         </Button>
-        <Button size="sm" className="h-8" onClick={onSave}>
-          <Save size={13} /> Save
+        <Button
+          size="sm"
+          className="h-8 min-w-[88px]"
+          onClick={onSave}
+          disabled={isSaving}
+        >
+          {isSaving ? (
+            <ThinkingState
+              compact
+              size="xs"
+              label={saveLabel || 'Saving…'}
+              variant="trio"
+              theme="primary"
+            />
+          ) : (
+            <>
+              <Save size={13} /> Save
+            </>
+          )}
         </Button>
       </div>
     </div>
@@ -1500,6 +1542,12 @@ function AutomationEditor({
   const [runLogOpen, setRunLogOpen] = React.useState(true)
   const canvasRef = React.useRef<HTMLDivElement>(null)
   const [canvasSize, setCanvasSize] = React.useState({ w: 800, h: 600 })
+
+  // Thinking-orb state — visual-only indicators on the Save + Run now buttons.
+  const [isSaving, setIsSaving] = React.useState(false)
+  const [isRunning, setIsRunning] = React.useState(false)
+  const [saveLabel, setSaveLabel] = React.useState('Saving…')
+  const [runLabel, setRunLabel] = React.useState('Checking…')
 
   // Track canvas size for the mini-map viewport indicator
   React.useEffect(() => {
@@ -1730,20 +1778,47 @@ function AutomationEditor({
     })
   }
 
-  function handleSave() {
-    update.mutate({
-      id: automation.id,
-      name,
-      description,
-      enabled,
-      triggerType: history.graph.nodes.find((n) => n.type === 'trigger')?.data.triggerType || automation.triggerType,
-      graph: history.graph,
-    })
-    toast.success('Automation saved')
+  async function handleSave() {
+    if (isSaving) return
+    setIsSaving(true)
+    setSaveLabel('Saving…')
+    const startedAt = Date.now()
+    try {
+      await update.mutateAsync({
+        id: automation.id,
+        name,
+        description,
+        enabled,
+        triggerType: history.graph.nodes.find((n) => n.type === 'trigger')?.data.triggerType || automation.triggerType,
+        graph: history.graph,
+      })
+      // Hold the orb for at least 600ms total so the affordance reads as
+      // intentional rather than a flash.
+      const elapsed = Date.now() - startedAt
+      if (elapsed < 600) {
+        await new Promise((r) => setTimeout(r, 600 - elapsed))
+      }
+      toast.success('Automation saved')
+    } catch {
+      toast.error('Could not save automation')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  function handleRunNow() {
-    toast.success('Test run queued')
+  async function handleRunNow() {
+    if (isRunning) return
+    setIsRunning(true)
+    setRunLabel('Checking…')
+    try {
+      await simulateAIThinking('automation', {
+        duration: 1000,
+        onLabel: (label) => setRunLabel(label),
+      })
+      toast.success('Test run completed')
+    } finally {
+      setIsRunning(false)
+    }
   }
 
   function zoomIn() {
@@ -1812,6 +1887,10 @@ function AutomationEditor({
         onSave={handleSave}
         onRunNow={handleRunNow}
         onBack={onBack}
+        isSaving={isSaving}
+        isRunning={isRunning}
+        saveLabel={saveLabel}
+        runLabel={runLabel}
       />
 
       <div className="flex-1 flex min-h-0">

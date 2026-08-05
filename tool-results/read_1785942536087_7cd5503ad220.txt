@@ -1,0 +1,978 @@
+     1→'use client'
+     2→
+     3→/**
+     4→ * Pulse CRM — DealDrawer
+     5→ *
+     6→ * Rendered inside the global Sheet slide-over (see
+     7→ * `src/components/crm/shell/entity-drawer.tsx`). We render the inner
+     8→ * content: header (editable title + stage badge), Tabs (Overview |
+     9→ * Activity | Tasks | Notes), and a sticky footer (Delete + Save).
+    10→ *
+    11→ * In `mode="create"` the form starts empty and Save creates a new deal
+    12→ * then calls `onClose()`. In edit mode the form is pre-filled from the
+    13→ * fetched deal and Save updates + toasts but keeps the drawer open.
+    14→ *
+    15→ * The Sheet already provides a built-in X button at `top-4 right-4`,
+    16→ * so the header uses `pr-12` to leave room for it (per convention
+    17→ * established by LeadDrawer / ContactDrawer / CompanyDrawer).
+    18→ */
+    19→
+    20→import * as React from 'react'
+    21→import { useForm, Controller } from 'react-hook-form'
+    22→import { zodResolver } from '@hookform/resolvers/zod'
+    23→import { z } from 'zod'
+    24→import { format } from 'date-fns'
+    25→import {
+    26→  useDeals,
+    27→  useDealMutations,
+    28→  usePipelines,
+    29→  useContacts,
+    30→  useCompanies,
+    31→  useActivities,
+    32→  useTasks,
+    33→  useTaskMutations,
+    34→  useNotes,
+    35→  useNoteMutations,
+    36→  useSettings,
+    37→} from '@/lib/hooks'
+    38→import { useAppStore } from '@/lib/store'
+    39→import {
+    40→  Avatar,
+    41→  StatusDot,
+    42→  money,
+    43→  relTime,
+    44→  EmptyState,
+    45→} from '@/components/crm/shared'
+    46→import { Button } from '@/components/ui/button'
+    47→import { Input } from '@/components/ui/input'
+    48→import { Textarea } from '@/components/ui/textarea'
+    49→import { Label } from '@/components/ui/label'
+    50→import { Slider } from '@/components/ui/slider'
+    51→import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+    52→import { Skeleton } from '@/components/ui/skeleton'
+    53→import { Badge } from '@/components/ui/badge'
+    54→import {
+    55→  Select,
+    56→  SelectTrigger,
+    57→  SelectValue,
+    58→  SelectContent,
+    59→  SelectItem,
+    60→} from '@/components/ui/select'
+    61→import {
+    62→  Popover,
+    63→  PopoverTrigger,
+    64→  PopoverContent,
+    65→} from '@/components/ui/popover'
+    66→import { Calendar } from '@/components/ui/calendar'
+    67→import { toast } from 'sonner'
+    68→import { cn } from '@/lib/utils'
+    69→import type { Deal, Membership, Pipeline, Stage } from '@/lib/types'
+    70→import {
+    71→  Trash2,
+    72→  Save,
+    73→  Plus,
+    74→  StickyNote,
+    75→  CheckSquare,
+    76→  CalendarClock,
+    77→  Calendar as CalendarIcon,
+    78→  Pencil,
+    79→  Activity as ActivityIcon,
+    80→  User as UserIcon,
+    81→  CircleDollarSign,
+    82→  ListChecks,
+    83→} from 'lucide-react'
+    84→
+    85→// ----------------------------------------------------------------
+    86→// Constants
+    87→// ----------------------------------------------------------------
+    88→
+    89→const CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY']
+    90→
+    91→// ----------------------------------------------------------------
+    92→// Form schema
+    93→// ----------------------------------------------------------------
+    94→
+    95→const dealSchema = z.object({
+    96→  title: z.string().min(1, 'Title is required'),
+    97→  amount: z.number().min(0),
+    98→  currency: z.string(),
+    99→  probability: z.number().min(0).max(100),
+   100→  stageId: z.string().optional().nullable(),
+   101→  pipelineId: z.string().optional().nullable(),
+   102→  ownerId: z.string().optional().nullable(),
+   103→  contactId: z.string().optional().nullable(),
+   104→  companyId: z.string().optional().nullable(),
+   105→  expectedClose: z.string().optional().nullable(),
+   106→  closeReason: z.string().optional().nullable(),
+   107→})
+   108→
+   109→type DealFormValues = z.infer<typeof dealSchema>
+   110→
+   111→// ----------------------------------------------------------------
+   112→// Main component
+   113→// ----------------------------------------------------------------
+   114→
+   115→export function DealDrawer({
+   116→  id,
+   117→  mode,
+   118→  onClose,
+   119→}: {
+   120→  id?: string
+   121→  mode?: 'create'
+   122→  onClose: () => void
+   123→}) {
+   124→  const isCreate = mode === 'create' || !id
+   125→  const { data: deals = [] } = useDeals()
+   126→  const deal = id ? deals.find((d) => d.id === id) : undefined
+   127→
+   128→  const [tab, setTab] = React.useState('overview')
+   129→  const [isEditingTitle, setIsEditingTitle] = React.useState(false)
+   130→  const [titleDraft, setTitleDraft] = React.useState('')
+   131→
+   132→  const { data: pipelines = [] } = usePipelines() as { data: Pipeline[] }
+   133→  const { data: contacts = [] } = useContacts()
+   134→  const { data: companies = [] } = useCompanies()
+   135→  const { data: membersData } = useSettings('members')
+   136→  const members = (membersData as Membership[] | undefined) || []
+   137→
+   138→  // Resolve current pipeline + stages for the deal.
+   139→  const currentPipelineId = deal?.pipelineId || deal?.pipeline?.id || pipelines[0]?.id || ''
+   140→  const currentPipeline = pipelines.find((p) => p.id === currentPipelineId) || deal?.pipeline
+   141→  const stages: Stage[] = currentPipeline?.stages || deal?.pipeline?.stages || []
+   142→
+   143→  const form = useForm<DealFormValues>({
+   144→    resolver: zodResolver(dealSchema),
+   145→    defaultValues: {
+   146→      title: '',
+   147→      amount: 0,
+   148→      currency: 'USD',
+   149→      probability: 20,
+   150→      stageId: stages[0]?.id || null,
+   151→      pipelineId: currentPipelineId || null,
+   152→      ownerId: null,
+   153→      contactId: null,
+   154→      companyId: null,
+   155→      expectedClose: null,
+   156→      closeReason: null,
+   157→    },
+   158→    values: deal
+   159→      ? {
+   160→          title: deal.title,
+   161→          amount: deal.amount || 0,
+   162→          currency: deal.currency || 'USD',
+   163→          probability: deal.probability ?? 0,
+   164→          stageId: deal.stageId || deal.stage?.id || null,
+   165→          pipelineId: deal.pipelineId || deal.pipeline?.id || null,
+   166→          ownerId: deal.ownerId ?? null,
+   167→          contactId: deal.contactId ?? null,
+   168→          companyId: deal.companyId ?? null,
+   169→          expectedClose: deal.expectedClose ?? null,
+   170→          closeReason: (deal.closeReason as string | null) ?? null,
+   171→        }
+   172→      : undefined,
+   173→  })
+   174→
+   175→  const { create, update, remove } = useDealMutations()
+   176→
+   177→  const watchedStageId = form.watch('stageId')
+   178→  const watchedPipelineId = form.watch('pipelineId')
+   179→  const activePipeline =
+   180→    pipelines.find((p) => p.id === watchedPipelineId) || currentPipeline
+   181→  const activeStages: Stage[] = activePipeline?.stages || stages
+   182→  const selectedStage = activeStages.find((s) => s.id === watchedStageId)
+   183→  const canCloseDeal = !!selectedStage?.isWon || !!selectedStage?.isLost
+   184→
+   185→  // When the pipeline select changes, reset stageId to the first stage of that pipeline.
+   186→  React.useEffect(() => {
+   187→    if (!watchedPipelineId) return
+   188→    const p = pipelines.find((x) => x.id === watchedPipelineId)
+   189→    if (!p) return
+   190→    if (!p.stages.find((s) => s.id === watchedStageId)) {
+   191→      form.setValue('stageId', p.stages[0]?.id || null)
+   192→      form.setValue('probability', p.stages[0]?.probability ?? form.getValues('probability'))
+   193→    }
+   194→  }, [watchedPipelineId, pipelines, form, watchedStageId])
+   195→
+   196→  // When the stage changes, auto-update probability to the stage's default
+   197→  // (only in create mode, so we don't override user-set probability on existing deals).
+   198→  React.useEffect(() => {
+   199→    if (!isCreate || !selectedStage) return
+   200→    form.setValue('probability', selectedStage.probability)
+   201→  }, [selectedStage, isCreate, form])
+   202→
+   203→  // If the chosen stage is no longer won/lost, clear closeReason.
+   204→  React.useEffect(() => {
+   205→    if (!canCloseDeal && form.getValues('closeReason')) {
+   206→      form.setValue('closeReason', null)
+   207→    }
+   208→  }, [canCloseDeal, form])
+   209→
+   210→  const handleSubmit = form.handleSubmit(async (values) => {
+   211→    // Auto-set closeReason if user picked a won/lost stage without choosing one.
+   212→    let closeReason = values.closeReason
+   213→    if (selectedStage?.isWon && !closeReason) closeReason = 'won'
+   214→    if (selectedStage?.isLost && !closeReason) closeReason = 'lost'
+   215→
+   216→    const payload = {
+   217→      ...values,
+   218→      amount: Number(values.amount) || 0,
+   219→      probability: Number(values.probability) || 0,
+   220→      closeReason: closeReason as 'won' | 'lost' | null,
+   221→    }
+   222→    if (isCreate) {
+   223→      create.mutate(payload as any, {
+   224→        onSuccess: () => {
+   225→          toast.success('Deal created')
+   226→          onClose()
+   227→        },
+   228→        onError: () => toast.error('Could not create deal'),
+   229→      })
+   230→    } else if (id) {
+   231→      update.mutate({ id, ...payload } as any, {
+   232→        onSuccess: () => toast.success('Deal updated'),
+   233→        onError: () => toast.error('Could not update deal'),
+   234→      })
+   235→    }
+   236→  })
+   237→
+   238→  const handleDelete = () => {
+   239→    if (!id) return
+   240→    remove.mutate(id, {
+   241→      onSuccess: () => {
+   242→        toast.success('Deal deleted')
+   243→        onClose()
+   244→      },
+   245→    })
+   246→  }
+   247→
+   248→  // Inline-editable title handlers.
+   249→  const startEditTitle = () => {
+   250→    if (isCreate) return // create mode uses the form input directly
+   251→    setTitleDraft(deal?.title || '')
+   252→    setIsEditingTitle(true)
+   253→  }
+   254→  const commitTitle = () => {
+   255→    const v = titleDraft.trim()
+   256→    setIsEditingTitle(false)
+   257→    if (!v || !id) return
+   258→    if (v === deal?.title) return
+   259→    form.setValue('title', v)
+   260→    update.mutate({ id, title: v }, {
+   261→      onSuccess: () => toast.success('Title updated'),
+   262→      onError: () => toast.error('Could not update title'),
+   263→    })
+   264→  }
+   265→
+   266→  const titleDisplay = isCreate
+   267→    ? form.watch('title') || 'New deal'
+   268→    : deal?.title || 'Deal'
+   269→
+   270→  return (
+   271→    <div className="flex flex-col h-full">
+   272→      {/* Header */}
+   273→      <div className="px-6 pt-6 pb-4 border-b border-border/60 bg-background pr-12">
+   274→        <div className="flex items-start gap-3">
+   275→          <div className="size-10 rounded-xl bg-primary/10 text-primary grid place-items-center shrink-0">
+   276→            <CircleDollarSign className="size-5" />
+   277→          </div>
+   278→          <div className="flex-1 min-w-0">
+   279→            {/* Editable title (edit mode only). */}
+   280→            {isEditingTitle && !isCreate ? (
+   281→              <Input
+   282→                autoFocus
+   283→                value={titleDraft}
+   284→                onChange={(e) => setTitleDraft(e.target.value)}
+   285→                onBlur={commitTitle}
+   286→                onKeyDown={(e) => {
+   287→                  if (e.key === 'Enter') commitTitle()
+   288→                  if (e.key === 'Escape') setIsEditingTitle(false)
+   289→                }}
+   290→                className="h-8 text-[15px] font-semibold tracking-tight px-1.5"
+   291→              />
+   292→            ) : (
+   293→              <button
+   294→                type="button"
+   295→                onClick={startEditTitle}
+   296→                className="group inline-flex items-center gap-1.5 max-w-full"
+   297→              >
+   298→                <span className="text-[15px] font-semibold tracking-tight truncate">
+   299→                  {titleDisplay}
+   300→                </span>
+   301→                {!isCreate && (
+   302→                  <Pencil className="size-3 text-muted-foreground/0 group-hover:text-muted-foreground transition-colors" />
+   303→                )}
+   304→              </button>
+   305→            )}
+   306→            <div className="text-[12px] text-muted-foreground truncate mt-0.5">
+   307→              {isCreate
+   308→                ? 'Create a new deal'
+   309→                : deal?.company?.name || deal?.contact?.firstName + ' ' + deal?.contact?.lastName || 'Deal details'}
+   310→            </div>
+   311→            {/* Stage badge + amount + probability chips */}
+   312→            {deal && !isCreate && (
+   313→              <div className="mt-1.5 flex items-center gap-3 text-[11px] flex-wrap">
+   314→                {selectedStage ? (
+   315→                  <span
+   316→                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-medium"
+   317→                    style={{ background: `${selectedStage.color}22`, color: selectedStage.color }}
+   318→                  >
+   319→                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: selectedStage.color }} />
+   320→                    {selectedStage.name}
+   321→                  </span>
+   322→                ) : (
+   323→                  <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+   324→                    <StatusDot status="todo" /> No stage
+   325→                  </span>
+   326→                )}
+   327→                <span className="tabular-nums text-muted-foreground">
+   328→                  {money(deal.amount || 0, deal.currency || 'USD')}
+   329→                </span>
+   330→                <span className="tabular-nums text-muted-foreground">
+   331→                  {deal.probability || 0}% likely
+   332→                </span>
+   333→                {deal.closeReason && (
+   334→                  <Badge variant="outline" className={cn(
+   335→                    'text-[10px] font-semibold capitalize',
+   336→                    deal.closeReason === 'won' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+   337→                      : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+   338→                  )}>
+   339→                    {deal.closeReason}
+   340→                  </Badge>
+   341→                )}
+   342→              </div>
+   343→            )}
+   344→          </div>
+   345→        </div>
+   346→      </div>
+   347→
+   348→      {/* Tabs */}
+   349→      <div className="px-6 pt-3 border-b border-border/60 bg-background sticky top-0 z-10">
+   350→        <Tabs value={tab} onValueChange={setTab}>
+   351→          <TabsList className="bg-transparent p-0 h-9 gap-4">
+   352→            <TabsTrigger value="overview" className="text-[12px] data-[state=active]:bg-transparent data-[state=active]:shadow-none px-1 py-1.5 rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+   353→              Overview
+   354→            </TabsTrigger>
+   355→            <TabsTrigger value="activity" className="text-[12px] data-[state=active]:bg-transparent data-[state=active]:shadow-none px-1 py-1.5 rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+   356→              Activity
+   357→            </TabsTrigger>
+   358→            <TabsTrigger value="tasks" className="text-[12px] data-[state=active]:bg-transparent data-[state=active]:shadow-none px-1 py-1.5 rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+   359→              Tasks
+   360→            </TabsTrigger>
+   361→            <TabsTrigger value="notes" className="text-[12px] data-[state=active]:bg-transparent data-[state=active]:shadow-none px-1 py-1.5 rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+   362→              Notes
+   363→            </TabsTrigger>
+   364→          </TabsList>
+   365→        </Tabs>
+   366→      </div>
+   367→
+   368→      {/* Tab content */}
+   369→      <div className="flex-1 px-6 py-5">
+   370→        {tab === 'overview' && (
+   371→          <OverviewTab
+   372→            form={form}
+   373→            pipelines={pipelines}
+   374→            stages={activeStages}
+   375→            contacts={contacts}
+   376→            companies={companies}
+   377→            members={members}
+   378→            canCloseDeal={canCloseDeal}
+   379→          />
+   380→        )}
+   381→        {tab === 'activity' && <ActivityTab dealId={id} />}
+   382→        {tab === 'tasks' && <TasksTab dealId={id} />}
+   383→        {tab === 'notes' && <NotesTab dealId={id} />}
+   384→      </div>
+   385→
+   386→      {/* Footer */}
+   387→      <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t border-border p-4 flex items-center justify-between gap-2">
+   388→        {!isCreate && id ? (
+   389→          <Button
+   390→            variant="ghost"
+   391→            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+   392→            onClick={handleDelete}
+   393→            disabled={remove.isPending}
+   394→          >
+   395→            <Trash2 className="size-4" /> Delete
+   396→          </Button>
+   397→        ) : (
+   398→          <div />
+   399→        )}
+   400→        <div className="flex items-center gap-2">
+   401→          <Button variant="outline" onClick={onClose}>Cancel</Button>
+   402→          <Button onClick={handleSubmit} disabled={create.isPending || update.isPending}>
+   403→            <Save className="size-4" />
+   404→            {isCreate ? 'Create' : 'Save changes'}
+   405→          </Button>
+   406→        </div>
+   407→      </div>
+   408→    </div>
+   409→  )
+   410→}
+   411→
+   412→// ----------------------------------------------------------------
+   413→// Overview tab — form
+   414→// ----------------------------------------------------------------
+   415→
+   416→function OverviewTab({
+   417→  form,
+   418→  pipelines,
+   419→  stages,
+   420→  contacts,
+   421→  companies,
+   422→  members,
+   423→  canCloseDeal,
+   424→}: {
+   425→  form: ReturnType<typeof useForm<DealFormValues>>
+   426→  pipelines: Pipeline[]
+   427→  stages: Stage[]
+   428→  contacts: any[]
+   429→  companies: any[]
+   430→  members: Membership[]
+   431→  canCloseDeal: boolean
+   432→}) {
+   433→  const { register, control, formState: { errors } } = form
+   434→  const probability = form.watch('probability') || 0
+   435→  const amount = form.watch('amount') || 0
+   436→  const currency = form.watch('currency') || 'USD'
+   437→
+   438→  return (
+   439→    <div className="space-y-4">
+   440→      {/* Deal basics */}
+   441→      <div className="card-premium bg-card border border-border/60 rounded-xl p-5 shadow-soft space-y-4">
+   442→        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+   443→          Deal details
+   444→        </div>
+   445→        <div className="space-y-1.5">
+   446→          <Label htmlFor="title" className="text-[12px]">
+   447→            Title <span className="text-destructive">*</span>
+   448→          </Label>
+   449→          <Input id="title" placeholder="Q4 enterprise renewal" {...register('title')} />
+   450→          {errors.title && <p className="text-[11px] text-destructive">{errors.title.message}</p>}
+   451→        </div>
+   452→        <div className="grid grid-cols-3 gap-3">
+   453→          <div className="col-span-2 space-y-1.5">
+   454→            <Label htmlFor="amount" className="text-[12px]">Amount</Label>
+   455→            <Input
+   456→              id="amount"
+   457→              type="number"
+   458→              min={0}
+   459→              step="any"
+   460→              placeholder="5000"
+   461→              {...register('amount', {
+   462→                setValueAs: (v) => (v === '' || v == null ? 0 : Number(v)),
+   463→              })}
+   464→            />
+   465→          </div>
+   466→          <div className="space-y-1.5">
+   467→            <Label className="text-[12px]">Currency</Label>
+   468→            <Controller
+   469→              control={control}
+   470→              name="currency"
+   471→              render={({ field }) => (
+   472→                <Select value={field.value || 'USD'} onValueChange={field.onChange}>
+   473→                  <SelectTrigger className="h-9 text-[12px] w-full">
+   474→                    <SelectValue placeholder="USD" />
+   475→                  </SelectTrigger>
+   476→                  <SelectContent>
+   477→                    {CURRENCIES.map((c) => (
+   478→                      <SelectItem key={c} value={c}>{c}</SelectItem>
+   479→                    ))}
+   480→                  </SelectContent>
+   481→                </Select>
+   482→              )}
+   483→            />
+   484→          </div>
+   485→        </div>
+   486→        <div className="text-[11px] text-muted-foreground tabular-nums">
+   487→          Preview: <span className="font-medium text-foreground">{money(amount, currency)}</span>
+   488→        </div>
+   489→        <div className="space-y-2">
+   490→          <div className="flex items-center justify-between">
+   491→            <Label className="text-[12px]">Probability</Label>
+   492→            <span className="text-[11px] tabular-nums font-medium text-muted-foreground">
+   493→              {probability}%
+   494→            </span>
+   495→          </div>
+   496→          <Controller
+   497→            control={control}
+   498→            name="probability"
+   499→            render={({ field }) => (
+   500→              <Slider
+   501→                value={[field.value || 0]}
+   502→                onValueChange={([v]) => field.onChange(v)}
+   503→                min={0}
+   504→                max={100}
+   505→                step={1}
+   506→              />
+   507→            )}
+   508→          />
+   509→          <div className="flex justify-between text-[10px] text-muted-foreground">
+   510→            <span>Unlikely</span>
+   511→            <span>50/50</span>
+   512→            <span>Certain</span>
+   513→          </div>
+   514→        </div>
+   515→      </div>
+   516→
+   517→      {/* Pipeline & stage */}
+   518→      <div className="card-premium bg-card border border-border/60 rounded-xl p-5 shadow-soft space-y-4">
+   519→        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+   520→          Pipeline &amp; stage
+   521→        </div>
+   522→        <div className="grid grid-cols-2 gap-3">
+   523→          <div className="space-y-1.5">
+   524→            <Label className="text-[12px]">Pipeline</Label>
+   525→            <Controller
+   526→              control={control}
+   527→              name="pipelineId"
+   528→              render={({ field }) => (
+   529→                <Select value={field.value || 'none'} onValueChange={(v) => field.onChange(v === 'none' ? null : v)}>
+   530→                  <SelectTrigger className="h-9 text-[12px] w-full">
+   531→                    <SelectValue placeholder="Choose pipeline" />
+   532→                  </SelectTrigger>
+   533→                  <SelectContent>
+   534→                    {pipelines.length === 0 && <SelectItem value="none" disabled>No pipelines</SelectItem>}
+   535→                    {pipelines.map((p) => (
+   536→                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+   537→                    ))}
+   538→                  </SelectContent>
+   539→                </Select>
+   540→              )}
+   541→            />
+   542→          </div>
+   543→          <div className="space-y-1.5">
+   544→            <Label className="text-[12px]">Stage</Label>
+   545→            <Controller
+   546→              control={control}
+   547→              name="stageId"
+   548→              render={({ field }) => (
+   549→                <Select value={field.value || 'none'} onValueChange={(v) => field.onChange(v === 'none' ? null : v)}>
+   550→                  <SelectTrigger className="h-9 text-[12px] w-full">
+   551→                    <SelectValue placeholder="Choose stage" />
+   552→                  </SelectTrigger>
+   553→                  <SelectContent>
+   554→                    {stages.length === 0 && <SelectItem value="none" disabled>No stages</SelectItem>}
+   555→                    {stages.map((s) => (
+   556→                      <SelectItem key={s.id} value={s.id}>
+   557→                        <span className="inline-flex items-center gap-1.5">
+   558→                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
+   559→                          {s.name}
+   560→                        </span>
+   561→                      </SelectItem>
+   562→                    ))}
+   563→                  </SelectContent>
+   564→                </Select>
+   565→              )}
+   566→            />
+   567→          </div>
+   568→        </div>
+   569→        <div className="grid grid-cols-2 gap-3">
+   570→          <div className="space-y-1.5">
+   571→            <Label className="text-[12px]">Expected close</Label>
+   572→            <Controller
+   573→              control={control}
+   574→              name="expectedClose"
+   575→              render={({ field }) => (
+   576→                <Popover>
+   577→                  <PopoverTrigger asChild>
+   578→                    <Button
+   579→                      type="button"
+   580→                      variant="outline"
+   581→                      className={cn(
+   582→                        'h-9 w-full justify-start text-[12px] font-normal',
+   583→                        !field.value && 'text-muted-foreground'
+   584→                      )}
+   585→                    >
+   586→                      <CalendarIcon className="size-3.5 mr-1.5" />
+   587→                      {field.value ? format(new Date(field.value), 'MMM d, yyyy') : 'Pick a date'}
+   588→                    </Button>
+   589→                  </PopoverTrigger>
+   590→                  <PopoverContent className="w-auto p-0" align="start">
+   591→                    <Calendar
+   592→                      mode="single"
+   593→                      selected={field.value ? new Date(field.value) : undefined}
+   594→                      onSelect={(d) => field.onChange(d ? d.toISOString() : null)}
+   595→                      initialFocus
+   596→                    />
+   597→                    {field.value && (
+   598→                      <div className="border-t border-border p-2 flex justify-end">
+   599→                        <Button
+   600→                          type="button"
+   601→                          variant="ghost"
+   602→                          size="sm"
+   603→                          className="h-7 text-[11px] text-destructive hover:text-destructive"
+   604→                          onClick={() => field.onChange(null)}
+   605→                        >
+   606→                          Clear date
+   607→                        </Button>
+   608→                      </div>
+   609→                    )}
+   610→                  </PopoverContent>
+   611→                </Popover>
+   612→              )}
+   613→            />
+   614→          </div>
+   615→          <div className="space-y-1.5">
+   616→            <Label className="text-[12px]">Close reason</Label>
+   617→            <Controller
+   618→              control={control}
+   619→              name="closeReason"
+   620→              render={({ field }) => (
+   621→                <Select
+   622→                  value={field.value || 'none'}
+   623→                  onValueChange={(v) => field.onChange(v === 'none' ? null : v)}
+   624→                  disabled={!canCloseDeal}
+   625→                >
+   626→                  <SelectTrigger className="h-9 text-[12px] w-full">
+   627→                    <SelectValue placeholder={canCloseDeal ? 'Open' : '—'} />
+   628→                  </SelectTrigger>
+   629→                  <SelectContent>
+   630→                    <SelectItem value="none">Open</SelectItem>
+   631→                    <SelectItem value="won">Won</SelectItem>
+   632→                    <SelectItem value="lost">Lost</SelectItem>
+   633→                  </SelectContent>
+   634→                </Select>
+   635→              )}
+   636→            />
+   637→            {!canCloseDeal && (
+   638→              <p className="text-[10px] text-muted-foreground">
+   639→                Move to a Won/Lost stage to close this deal.
+   640→              </p>
+   641→            )}
+   642→          </div>
+   643→        </div>
+   644→      </div>
+   645→
+   646→      {/* Ownership & links */}
+   647→      <div className="card-premium bg-card border border-border/60 rounded-xl p-5 shadow-soft space-y-4">
+   648→        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+   649→          Ownership &amp; links
+   650→        </div>
+   651→        <div className="grid grid-cols-2 gap-3">
+   652→          <div className="space-y-1.5">
+   653→            <Label className="text-[12px]">Owner</Label>
+   654→            <Controller
+   655→              control={control}
+   656→              name="ownerId"
+   657→              render={({ field }) => (
+   658→                <Select value={field.value || 'unassigned'} onValueChange={(v) => field.onChange(v === 'unassigned' ? null : v)}>
+   659→                  <SelectTrigger className="h-9 text-[12px] w-full">
+   660→                    <SelectValue placeholder="Assign to…" />
+   661→                  </SelectTrigger>
+   662→                  <SelectContent>
+   663→                    <SelectItem value="unassigned">Unassigned</SelectItem>
+   664→                    {members.map((m) => (
+   665→                      <SelectItem key={m.id} value={m.userId}>{m.user?.name || m.user?.email}</SelectItem>
+   666→                    ))}
+   667→                  </SelectContent>
+   668→                </Select>
+   669→              )}
+   670→            />
+   671→          </div>
+   672→          <div className="space-y-1.5">
+   673→            <Label className="text-[12px]">Company</Label>
+   674→            <Controller
+   675→              control={control}
+   676→              name="companyId"
+   677→              render={({ field }) => (
+   678→                <Select value={field.value || 'none'} onValueChange={(v) => field.onChange(v === 'none' ? null : v)}>
+   679→                  <SelectTrigger className="h-9 text-[12px] w-full">
+   680→                    <SelectValue placeholder="Link to company…" />
+   681→                  </SelectTrigger>
+   682→                  <SelectContent>
+   683→                    <SelectItem value="none">None</SelectItem>
+   684→                    {companies.map((c) => (
+   685→                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+   686→                    ))}
+   687→                  </SelectContent>
+   688→                </Select>
+   689→              )}
+   690→            />
+   691→          </div>
+   692→          <div className="col-span-2 space-y-1.5">
+   693→            <Label className="text-[12px]">Contact</Label>
+   694→            <Controller
+   695→              control={control}
+   696→              name="contactId"
+   697→              render={({ field }) => (
+   698→                <Select value={field.value || 'none'} onValueChange={(v) => field.onChange(v === 'none' ? null : v)}>
+   699→                  <SelectTrigger className="h-9 text-[12px] w-full">
+   700→                    <SelectValue placeholder="Link to contact…" />
+   701→                  </SelectTrigger>
+   702→                  <SelectContent>
+   703→                    <SelectItem value="none">None</SelectItem>
+   704→                    {contacts.map((c) => (
+   705→                      <SelectItem key={c.id} value={c.id}>
+   706→                        {c.firstName} {c.lastName}{c.jobTitle ? ` · ${c.jobTitle}` : ''}
+   707→                      </SelectItem>
+   708→                    ))}
+   709→                  </SelectContent>
+   710→                </Select>
+   711→              )}
+   712→            />
+   713→          </div>
+   714→        </div>
+   715→      </div>
+   716→    </div>
+   717→  )
+   718→}
+   719→
+   720→// ----------------------------------------------------------------
+   721→// Activity tab — timeline filtered by dealId
+   722→// ----------------------------------------------------------------
+   723→
+   724→function ActivityTab({ dealId }: { dealId?: string }) {
+   725→  const { data: activities = [], isLoading } = useActivities()
+   726→  const filtered = dealId ? activities.filter((a: any) => a.dealId === dealId) : []
+   727→
+   728→  if (isLoading) {
+   729→    return (
+   730→      <div className="space-y-3">
+   731→        {Array.from({ length: 4 }).map((_, i) => (
+   732→          <Skeleton key={i} className="h-16 w-full rounded-lg" />
+   733→        ))}
+   734→      </div>
+   735→    )
+   736→  }
+   737→
+   738→  if (filtered.length === 0) {
+   739→    return (
+   740→      <EmptyState
+   741→        icon={<ActivityIcon className="size-5" />}
+   742→        title="No activity yet"
+   743→        hint="Stage changes, notes, and edits on this deal will appear here in chronological order."
+   744→      />
+   745→    )
+   746→  }
+   747→
+   748→  return (
+   749→    <ol className="relative space-y-3 pl-5">
+   750→      <div className="absolute left-1.5 top-2 bottom-2 w-px bg-border" />
+   751→      {filtered.map((a: any) => (
+   752→        <li key={a.id} className="relative">
+   753→          <span className="absolute -left-[14px] top-2 size-3 rounded-full bg-primary ring-2 ring-background" />
+   754→          <div className="card-premium bg-card border border-border/60 rounded-lg p-3 shadow-soft">
+   755→            <div className="flex items-center gap-2">
+   756→              {a.actor ? (
+   757→                <Avatar name={a.actor.name} url={a.actor.avatarUrl} size={20} />
+   758→              ) : (
+   759→                <ActivityIcon className="size-4 text-muted-foreground" />
+   760→              )}
+   761→              <span className="text-[12px] font-medium">{a.actor?.name || 'System'}</span>
+   762→              <span className="text-[11px] text-muted-foreground">{relTime(a.createdAt)}</span>
+   763→              <span className="ml-auto text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+   764→                {a.type}
+   765→              </span>
+   766→            </div>
+   767→            <div className="mt-1.5 text-[12px] text-foreground/80">{a.summary}</div>
+   768→          </div>
+   769→        </li>
+   770→      ))}
+   771→    </ol>
+   772→  )
+   773→}
+   774→
+   775→// ----------------------------------------------------------------
+   776→// Tasks tab — list filtered by dealId + Add task button
+   777→// ----------------------------------------------------------------
+   778→
+   779→function TasksTab({ dealId }: { dealId?: string }) {
+   780→  const { data: tasks = [], isLoading } = useTasks()
+   781→  const { create } = useTaskMutations()
+   782→  const openDrawer = useAppStore((s) => s.openDrawer)
+   783→  const user = useAppStore((s) => s.user)
+   784→  const workspace = useAppStore((s) => s.workspace)
+   785→
+   786→  const filtered = dealId ? tasks.filter((t) => t.dealId === dealId) : []
+   787→
+   788→  const handleAddTask = () => {
+   789→    if (!dealId) {
+   790→      toast.error('Save the deal first to add tasks')
+   791→      return
+   792→    }
+   793→    create.mutate(
+   794→      {
+   795→        workspaceId: workspace?.id,
+   796→        dealId,
+   797→        title: 'New task',
+   798→        status: 'todo',
+   799→        priority: 'medium',
+   800→        ownerId: user?.id,
+   801→        creatorId: user?.id,
+   802→      } as any,
+   803→      {
+   804→        onSuccess: (task: any) => {
+   805→          toast.success('Task created')
+   806→          if (task?.id) openDrawer('task', task.id)
+   807→        },
+   808→        onError: () => toast.error('Could not create task'),
+   809→      }
+   810→    )
+   811→  }
+   812→
+   813→  if (!dealId) {
+   814→    return (
+   815→      <EmptyState
+   816→        icon={<ListChecks className="size-5" />}
+   817→        title="Save the deal first"
+   818→        hint="Tasks can be attached once this deal has been created."
+   819→        action={
+   820→          <Button size="sm" onClick={handleAddTask} disabled>
+   821→            <Plus className="size-3.5" /> Add task
+   822→          </Button>
+   823→        }
+   824→      />
+   825→    )
+   826→  }
+   827→
+   828→  return (
+   829→    <div className="space-y-3">
+   830→      <div className="flex items-center justify-between">
+   831→        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+   832→          {filtered.length} task{filtered.length === 1 ? '' : 's'}
+   833→        </div>
+   834→        <Button size="sm" variant="outline" onClick={handleAddTask} disabled={create.isPending}>
+   835→          <Plus className="size-3.5" /> Add task
+   836→        </Button>
+   837→      </div>
+   838→
+   839→      {isLoading ? (
+   840→        <div className="space-y-2">
+   841→          {Array.from({ length: 3 }).map((_, i) => (
+   842→            <Skeleton key={i} className="h-16 w-full rounded-lg" />
+   843→          ))}
+   844→        </div>
+   845→      ) : filtered.length === 0 ? (
+   846→        <EmptyState
+   847→          icon={<CheckSquare className="size-5" />}
+   848→          title="No tasks yet"
+   849→          hint="Add follow-ups, demos, or contract reviews to keep this deal on track."
+   850→        />
+   851→      ) : (
+   852→        <ul className="space-y-2">
+   853→          {filtered.map((t) => (
+   854→            <li key={t.id}>
+   855→              <button
+   856→                onClick={() => openDrawer('task', t.id)}
+   857→                className="card-premium w-full text-left bg-card border border-border/60 rounded-lg p-3 shadow-soft hover:-translate-y-px hover:shadow-glow transition-all flex items-center gap-3"
+   858→              >
+   859→                <StatusDot status={t.status} />
+   860→                <div className="flex-1 min-w-0">
+   861→                  <div className={cn('text-[13px] font-medium truncate', t.status === 'done' && 'line-through text-muted-foreground')}>
+   862→                    {t.title}
+   863→                  </div>
+   864→                  <div className="text-[11px] text-muted-foreground flex items-center gap-2">
+   865→                    <span className="capitalize">{t.status.replace('_', ' ')}</span>
+   866→                    <span>·</span>
+   867→                    <span className="capitalize">{t.priority}</span>
+   868→                    {t.dueDate && (
+   869→                      <>
+   870→                        <span>·</span>
+   871→                        <span className="inline-flex items-center gap-1">
+   872→                          <CalendarClock className="size-3" />
+   873→                          {relTime(t.dueDate)}
+   874→                        </span>
+   875→                      </>
+   876→                    )}
+   877→                  </div>
+   878→                </div>
+   879→                {t.assignee ? (
+   880→                  <Avatar name={t.assignee.name} url={t.assignee.avatarUrl} size={22} />
+   881→                ) : (
+   882→                  <span className="text-[11px] text-muted-foreground">—</span>
+   883→                )}
+   884→              </button>
+   885→            </li>
+   886→          ))}
+   887→        </ul>
+   888→      )}
+   889→    </div>
+   890→  )
+   891→}
+   892→
+   893→// ----------------------------------------------------------------
+   894→// Notes tab — composer + list filtered by dealId
+   895→// ----------------------------------------------------------------
+   896→
+   897→function NotesTab({ dealId }: { dealId?: string }) {
+   898→  const { data: notes = [], isLoading } = useNotes()
+   899→  const { create } = useNoteMutations()
+   900→  const [body, setBody] = React.useState('')
+   901→
+   902→  const filtered = dealId ? notes.filter((n) => n.dealId === dealId) : []
+   903→
+   904→  const handleSave = () => {
+   905→    const v = body.trim()
+   906→    if (!v) return
+   907→    if (!dealId) {
+   908→      toast.error('Save the deal first to add notes')
+   909→      return
+   910→    }
+   911→    create.mutate(
+   912→      { dealId, body: v, pinned: false } as any,
+   913→      {
+   914→        onSuccess: () => {
+   915→          setBody('')
+   916→          toast.success('Note added')
+   917→        },
+   918→        onError: () => toast.error('Could not save note'),
+   919→      }
+   920→    )
+   921→  }
+   922→
+   923→  return (
+   924→    <div className="space-y-4">
+   925→      <div className="card-premium bg-card border border-border/60 rounded-xl p-3 shadow-soft">
+   926→        <Textarea
+   927→          value={body}
+   928→          onChange={(e) => setBody(e.target.value)}
+   929→          placeholder={dealId ? 'Write a note about this deal…' : 'Save the deal first to add notes.'}
+   930→          disabled={!dealId}
+   931→          className="min-h-[80px] border-0 shadow-none focus-visible:ring-0 text-[13px] resize-none disabled:cursor-not-allowed disabled:opacity-60"
+   932→        />
+   933→        <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
+   934→          <Button size="sm" onClick={handleSave} disabled={!body.trim() || create.isPending || !dealId}>
+   935→            <StickyNote className="size-3.5" /> Add note
+   936→          </Button>
+   937→        </div>
+   938→      </div>
+   939→
+   940→      {isLoading ? (
+   941→        <div className="space-y-2">
+   942→          {Array.from({ length: 3 }).map((_, i) => (
+   943→            <Skeleton key={i} className="h-20 w-full rounded-lg" />
+   944→          ))}
+   945→        </div>
+   946→      ) : filtered.length === 0 ? (
+   947→        <EmptyState
+   948→          icon={<StickyNote className="size-5" />}
+   949→          title="No notes yet"
+   950→          hint="Capture context from conversations, proposals, or negotiation details here."
+   951→        />
+   952→      ) : (
+   953→        <ol className="space-y-2">
+   954→          {filtered.map((n) => (
+   955→            <li key={n.id} className="card-premium bg-card border border-border/60 rounded-lg p-3 shadow-soft">
+   956→              <div className="flex items-center gap-2">
+   957→                {n.author ? (
+   958→                  <Avatar name={n.author.name} url={n.author.avatarUrl} size={20} />
+   959→                ) : (
+   960→                  <UserIcon className="size-4 text-muted-foreground" />
+   961→                )}
+   962→                <span className="text-[12px] font-medium">{n.author?.name || 'Someone'}</span>
+   963→                <span className="text-[11px] text-muted-foreground">{relTime(n.createdAt)}</span>
+   964→                {n.pinned && (
+   965→                  <span className="ml-auto text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300">
+   966→                    Pinned
+   967→                  </span>
+   968→                )}
+   969→              </div>
+   970→              <div className="mt-1.5 text-[12px] text-foreground/80 whitespace-pre-wrap">{n.body}</div>
+   971→            </li>
+   972→          ))}
+   973→        </ol>
+   974→      )}
+   975→    </div>
+   976→  )
+   977→}
+   978→

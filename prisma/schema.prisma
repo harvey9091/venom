@@ -46,6 +46,7 @@ model User {
   watchedTasks  TaskWatcher[]
   comments      Comment[]
   files         File[]
+  auditLogs     AuditLog[]
 }
 
 model Workspace {
@@ -502,6 +503,7 @@ model AuditLog {
   createdAt    DateTime @default(now())
 
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor        User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
 }
 
 model ApiKey {

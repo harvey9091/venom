@@ -7,6 +7,7 @@
  * upcoming tasks, recent leads, activity feed, and quick actions.
  */
 
+import * as React from 'react'
 import { useDashboard } from '@/lib/hooks'
 import { useAppStore } from '@/lib/store'
 import {
@@ -20,6 +21,8 @@ import {
 } from '@/components/crm/shared'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { ThinkingState } from '@/components/crm/thinking'
+import { useThinkingTask } from '@/lib/thinking'
 import { cn } from '@/lib/utils'
 import { motion, type Variants } from 'framer-motion'
 import {
@@ -48,6 +51,7 @@ import {
   Sparkles,
   ChevronRight,
   Activity as ActivityIcon,
+  RotateCcw,
 } from 'lucide-react'
 import type { Task, Lead, Activity } from '@/lib/types'
 
@@ -764,34 +768,46 @@ function QuickActions() {
 // ---------------------------------------------------------------
 // Loading skeleton
 // ---------------------------------------------------------------
+/** Skeleton card with a Thinking orb in the top-left, signalling the system is computing this widget's data. */
+function SkeletonWithOrb({ className }: { className: string }) {
+  return (
+    <div className="relative">
+      <Skeleton className={className} />
+      <div className="absolute top-3 left-3 z-10">
+        <ThinkingState compact size="sm" variant="trio" theme="primary" />
+      </div>
+    </div>
+  )
+}
+
 function DashboardSkeleton() {
   return (
     <div className="grid grid-cols-12 gap-4 p-4 md:p-6">
       <div className="col-span-12 grid grid-cols-2 md:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-[120px] rounded-xl" />
+          <SkeletonWithOrb key={i} className="h-[120px] rounded-xl" />
         ))}
       </div>
       <div className="col-span-12">
-        <Skeleton className="h-[88px] rounded-xl" />
+        <SkeletonWithOrb className="h-[88px] rounded-xl" />
       </div>
       <div className="col-span-12 lg:col-span-8">
-        <Skeleton className="h-[340px] rounded-xl" />
+        <SkeletonWithOrb className="h-[340px] rounded-xl" />
       </div>
       <div className="col-span-12 lg:col-span-4">
-        <Skeleton className="h-[340px] rounded-xl" />
+        <SkeletonWithOrb className="h-[340px] rounded-xl" />
       </div>
       <div className="col-span-12 lg:col-span-6">
-        <Skeleton className="h-[340px] rounded-xl" />
+        <SkeletonWithOrb className="h-[340px] rounded-xl" />
       </div>
       <div className="col-span-12 lg:col-span-6">
-        <Skeleton className="h-[340px] rounded-xl" />
+        <SkeletonWithOrb className="h-[340px] rounded-xl" />
       </div>
       <div className="col-span-12 lg:col-span-6">
-        <Skeleton className="h-[340px] rounded-xl" />
+        <SkeletonWithOrb className="h-[340px] rounded-xl" />
       </div>
       <div className="col-span-12 lg:col-span-6">
-        <Skeleton className="h-[340px] rounded-xl" />
+        <SkeletonWithOrb className="h-[340px] rounded-xl" />
       </div>
     </div>
   )
@@ -830,8 +846,24 @@ function DashboardEmpty() {
 // Main DashboardView
 // ---------------------------------------------------------------
 export function DashboardView() {
-  const { data: raw, isLoading } = useDashboard()
+  const { data: raw, isLoading, refetch } = useDashboard()
   const data = raw as DashboardData | undefined
+  const { startSequence } = useThinkingTask()
+  const [isRefreshing, setIsRefreshing] = React.useState(false)
+
+  const handleRefresh = React.useCallback(async () => {
+    if (isRefreshing) return
+    setIsRefreshing(true)
+    const seqPromise = startSequence(
+      ['Refreshing charts…', 'Recomputing KPIs…', 'Updating dashboard…'],
+      { duration: 800, variant: 'trio', size: 'sm', priority: 'background' },
+    )
+    try {
+      await Promise.all([refetch(), seqPromise])
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [refetch, startSequence, isRefreshing])
 
   if (isLoading) return <DashboardSkeleton />
   if (!data) return <DashboardEmpty />
@@ -883,6 +915,7 @@ export function DashboardView() {
   ]
 
   return (
+    <div className="relative">
     <motion.div
       variants={container}
       initial="hidden"
@@ -937,5 +970,21 @@ export function DashboardView() {
         <ActivityFeed activities={data.activities || []} />
       </motion.div>
     </motion.div>
+
+      {/* Floating refresh button — triggers a brief thinking sequence */}
+      <div className="absolute top-4 right-4 md:top-6 md:right-6 z-30 flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-lg p-1 pr-2 shadow-soft border border-border/40">
+        {isRefreshing && <ThinkingState compact size="xs" variant="pulse" />}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="h-8 gap-1.5"
+        >
+          <RotateCcw size={13} className={isRefreshing ? 'animate-spin' : ''} />
+          <span className="text-[12px]">Refresh</span>
+        </Button>
+      </div>
+    </div>
   )
 }
