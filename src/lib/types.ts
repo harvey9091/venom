@@ -30,6 +30,7 @@ export interface Membership {
   role: Role
   joinedAt?: string
   user?: User
+  workspace?: Workspace
 }
 
 export interface Company {

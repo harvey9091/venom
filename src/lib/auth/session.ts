@@ -1,7 +1,7 @@
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 
 export async function getCurrentUser() {
-  const supabase = createSupabaseServerClient()
+  const supabase = await createSupabaseServerClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -9,7 +9,7 @@ export async function getCurrentUser() {
 }
 
 export async function getCurrentSession() {
-  const supabase = createSupabaseServerClient()
+  const supabase = await createSupabaseServerClient()
   const {
     data: { session },
   } = await supabase.auth.getSession()
@@ -25,7 +25,7 @@ export async function requireAuth() {
 }
 
 export async function getWorkspaceMemberships() {
-  const supabase = createSupabaseServerClient()
+  const supabase = await createSupabaseServerClient()
   const { data, error } = await supabase
     .from('memberships')
     .select('*, workspace:workspaces(*), user:users(*)')

@@ -7,13 +7,20 @@
 import { create } from 'zustand'
 import type {
   User, Workspace, RouteState, ViewKey, Notification, Tag,
+  Membership,
 } from './types'
 
 interface AuthState {
   user: User | null
   setUser: (u: User | null) => void
+  workspaces: Membership[]
+  setWorkspaces: (w: Membership[]) => void
+  addWorkspace: (w: Membership) => void
   workspace: Workspace | null
   setWorkspace: (w: Workspace | null) => void
+  activeWorkspaceId: string | null
+  setActiveWorkspaceId: (id: string | null) => void
+  switchWorkspace: (workspaceId: string) => void
 }
 
 interface AppState extends AuthState {
@@ -62,12 +69,66 @@ interface AppState extends AuthState {
   openAssistant: (seedPrompt?: string) => void
 }
 
+const WORKSPACE_STORAGE_KEY = 'venom-active-workspace-id'
+
+function loadActiveWorkspaceId(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return localStorage.getItem(WORKSPACE_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function saveActiveWorkspaceId(id: string | null) {
+  if (typeof window === 'undefined') return
+  try {
+    if (id) {
+      localStorage.setItem(WORKSPACE_STORAGE_KEY, id)
+    } else {
+      localStorage.removeItem(WORKSPACE_STORAGE_KEY)
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   // Auth state
   user: null,
   setUser: (u) => set({ user: u }),
+
+  workspaces: [],
+  setWorkspaces: (workspaces) => set({ workspaces }),
+  addWorkspace: (workspace) => set((s) => ({ workspaces: [...s.workspaces, workspace] })),
+
   workspace: null,
   setWorkspace: (w) => set({ workspace: w }),
+
+  activeWorkspaceId: loadActiveWorkspaceId(),
+  setActiveWorkspaceId: (id) => {
+    saveActiveWorkspaceId(id)
+    set({ activeWorkspaceId: id })
+  },
+
+  switchWorkspace: (workspaceId: string) => {
+    saveActiveWorkspaceId(workspaceId)
+    const membership = get().workspaces.find((w) => w.workspaceId === workspaceId)
+    set({
+      workspace: membership?.workspace || null,
+      activeWorkspaceId: workspaceId,
+      route: { view: 'dashboard' },
+      history: [{ view: 'dashboard' }],
+      forwardStack: [],
+      tags: [],
+      notifications: [],
+      drawer: null,
+      commandOpen: false,
+      notifOpen: false,
+      assistantOpen: false,
+      assistantSeedPrompt: null,
+    })
+  },
 
   // Navigation
   route: { view: 'dashboard' },

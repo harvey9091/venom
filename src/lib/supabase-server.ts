@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -8,45 +8,52 @@ if (!url || !anonKey) {
   throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY')
 }
 
-export function createSupabaseServerClient() {
-  const cookieStore = cookies()
-  return createClient(url!, anonKey!, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-    global: {
-      headers: {
-        'x-supabase-route-type': 'realtime',
+export async function createSupabaseServerClient() {
+  const cookieStore = await cookies()
+  return createServerClient(url!, anonKey!, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll()
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value, options }) =>
+          cookieStore.set(name, value, options)
+        )
       },
     },
   })
 }
 
-export function createSupabaseServerActionClient() {
-  const cookieStore = cookies()
-  return createClient(url!, anonKey!, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-    global: {
-      headers: {
-        'x-supabase-route-type': 'realtime',
+export async function createSupabaseServerActionClient() {
+  const cookieStore = await cookies()
+  return createServerClient(url!, anonKey!, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll()
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value, options }) =>
+          cookieStore.set(name, value, options)
+        )
       },
     },
   })
 }
 
-export function createSupabaseServiceClient() {
+export async function createSupabaseServiceClient() {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!serviceKey) {
     throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY')
   }
-  return createClient(url!, serviceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
+  const cookieStore = await cookies()
+  return createServerClient(url!, serviceKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll()
+      },
+      setAll() {
+        // no-op: service client doesn't need cookies
+      },
     },
   })
 }

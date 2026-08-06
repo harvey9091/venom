@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useAppStore } from '@/lib/store'
 import { createSupabaseBrowserClient } from '@/lib/supabase-client'
 import type { User, Session } from '@supabase/supabase-js'
+import type { Membership } from '@/lib/types'
 
 type AuthState = {
   user: User | null
@@ -15,6 +16,7 @@ type AuthState = {
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<{ error: Error | null }>
   updatePassword: (password: string) => Promise<{ error: Error | null }>
+  switchWorkspace: (workspaceId: string) => Promise<void>
 }
 
 export function useAuth(): AuthState {
@@ -23,21 +25,24 @@ export function useAuth(): AuthState {
   const [isLoading, setIsLoading] = useState(true)
   const setUserStore = useAppStore((s) => s.setUser)
   const setWorkspaceStore = useAppStore((s) => s.setWorkspace)
+  const setWorkspacesStore = useAppStore((s) => s.setWorkspaces)
+  const addWorkspaceStore = useAppStore((s) => s.addWorkspace)
+  const switchWorkspaceStore = useAppStore((s) => s.switchWorkspace)
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient()
 
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) {
         setUserStore(session.user as unknown as import('@/lib/types').User)
+        loadWorkspace(session.access_token)
+      } else {
+        setIsLoading(false)
       }
-      setIsLoading(false)
     })
 
-    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -45,26 +50,39 @@ export function useAuth(): AuthState {
       setUser(session?.user ?? null)
       if (session?.user) {
         setUserStore(session.user as unknown as import('@/lib/types').User)
-        // Fetch workspace after auth
-        fetch('/api/crm/bootstrap', {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        })
-          .then((r) => r.json())
-          .then((j) => {
-            if (j.data?.user) setUserStore(j.data.user)
-            if (j.data?.workspace) setWorkspaceStore(j.data.workspace)
-          })
-          .catch(() => {})
+        loadWorkspace(session.access_token)
       } else {
         setUserStore(null)
         setWorkspaceStore(null)
+        setWorkspacesStore([])
+        setIsLoading(false)
       }
     })
 
     return () => subscription.unsubscribe()
-  }, [setUserStore, setWorkspaceStore])
+  }, [setUserStore, setWorkspaceStore, setWorkspacesStore])
+
+  const loadWorkspace = async (accessToken: string) => {
+    try {
+      const r = await fetch('/api/crm/bootstrap', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      })
+      const j = await r.json()
+      if (j.data?.user) setUserStore(j.data.user)
+      if (j.data?.workspace) {
+        setWorkspaceStore(j.data.workspace)
+      }
+      if (j.data?.memberships?.length) {
+        setWorkspacesStore(j.data.memberships)
+      }
+    } catch {
+      // ignore bootstrap errors
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const signIn = useCallback(async (email: string, password: string) => {
     const supabase = createSupabaseBrowserClient()
@@ -97,7 +115,8 @@ export function useAuth(): AuthState {
     setSession(null)
     setUserStore(null)
     setWorkspaceStore(null)
-  }, [setUserStore, setWorkspaceStore])
+    setWorkspacesStore([])
+  }, [setUserStore, setWorkspaceStore, setWorkspacesStore])
 
   const resetPassword = useCallback(async (email: string) => {
     const supabase = createSupabaseBrowserClient()
@@ -115,6 +134,24 @@ export function useAuth(): AuthState {
     return { error: error as Error | null }
   }, [])
 
+  const switchWorkspace = useCallback(async (workspaceId: string) => {
+    try {
+      const r = await fetch('/api/crm/workspaces/switch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ workspaceId }),
+      })
+      const j = await r.json()
+      if (j.ok && j.data) {
+        switchWorkspaceStore(j.data.id)
+      }
+    } catch {
+      // ignore switch errors
+    }
+  }, [user, switchWorkspaceStore])
+
   return {
     user,
     session,
@@ -125,5 +162,6 @@ export function useAuth(): AuthState {
     signOut,
     resetPassword,
     updatePassword,
+    switchWorkspace,
   }
 }

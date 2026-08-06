@@ -72,7 +72,10 @@ function Sidebar() {
   const collapsed = useAppStore((s) => s.sidebarCollapsed)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const workspace = useAppStore((s) => s.workspace)
+  const workspaces = useAppStore((s) => s.workspaces)
+  const switchWorkspace = useAppStore((s) => s.switchWorkspace)
   const navigate = useAppStore((s) => s.navigate)
+  const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false)
 
   const groups = Array.from(new Set(NAV.map((n) => n.group)))
   return (
@@ -84,20 +87,68 @@ function Sidebar() {
       style={{ borderRadius: 'var(--sidebar-radius, 0)', margin: collapsed ? '0' : 'var(--sidebar-margin, 0)' }}
     >
       {/* Workspace selector */}
-      <button
-        onClick={() => navigate('settings')}
-        className="mx-2 mt-3 mb-2 flex items-center gap-2.5 p-2 rounded-xl hover:bg-sidebar-accent/60 transition-colors group"
-      >
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/70 text-primary-foreground grid place-items-center font-bold text-sm shrink-0 shadow-soft">
-          {workspace?.name?.[0]?.toUpperCase() || 'V'}
-        </div>
-        {!collapsed && (
-          <div className="flex-1 min-w-0 text-left">
-            <div className="text-[13px] font-semibold truncate">{workspace?.name || 'Venom CRM'}</div>
-            <div className="text-[10px] text-muted-foreground capitalize">{workspace?.plan} plan</div>
+      <div className="relative mx-2 mt-3 mb-2">
+        <button
+          onClick={() => setShowWorkspaceMenu(!showWorkspaceMenu)}
+          className="w-full flex items-center gap-2.5 p-2 rounded-xl hover:bg-sidebar-accent/60 transition-colors group"
+        >
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/70 text-primary-foreground grid place-items-center font-bold text-sm shrink-0 shadow-soft">
+            {workspace?.name?.[0]?.toUpperCase() || 'V'}
+          </div>
+          {!collapsed && (
+            <div className="flex-1 min-w-0 text-left">
+              <div className="text-[13px] font-semibold truncate">{workspace?.name || 'Venom CRM'}</div>
+              <div className="text-[10px] text-muted-foreground capitalize">{workspace?.plan || 'free'} plan</div>
+            </div>
+          )}
+          {!collapsed && workspaces.length > 1 && (
+            <ChevronRight size={14} className={cn('transition-transform', showWorkspaceMenu ? 'rotate-90' : '')} />
+          )}
+        </button>
+
+        {/* Workspace dropdown */}
+        {showWorkspaceMenu && workspaces.length > 1 && (
+          <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+            <div className="py-1">
+              {workspaces.map((ws) => (
+                <button
+                  key={ws.workspaceId}
+                  onClick={() => {
+                    switchWorkspace(ws.workspaceId)
+                    setShowWorkspaceMenu(false)
+                  }}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/60 transition-colors',
+                    ws.workspaceId === workspace?.id && 'bg-primary/10'
+                  )}
+                >
+                  <div className="w-6 h-6 rounded-md bg-gradient-to-br from-primary to-primary/70 text-primary-foreground grid place-items-center font-bold text-[10px] shrink-0">
+                    {ws.workspace?.name?.[0]?.toUpperCase() || 'W'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] font-medium truncate">{ws.workspace?.name || 'Workspace'}</div>
+                    <div className="text-[10px] text-muted-foreground capitalize">{ws.role}</div>
+                  </div>
+                  {ws.workspaceId === workspace?.id && (
+                    <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="border-t border-border">
+              <button
+                onClick={() => {
+                  setShowWorkspaceMenu(false)
+                  navigate('settings')
+                }}
+                className="w-full px-3 py-2 text-left text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              >
+                Manage workspaces
+              </button>
+            </div>
           </div>
         )}
-      </button>
+      </div>
 
       {/* Quick search */}
       {!collapsed && (

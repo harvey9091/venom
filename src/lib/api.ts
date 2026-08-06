@@ -29,7 +29,7 @@ export function validateBody<T>(schema: { parse: (data: unknown) => T }): (data:
 }
 
 export async function getAuthUser() {
-  const supabase = createSupabaseServerClient()
+  const supabase = await createSupabaseServerClient()
   const {
     data: { session },
   } = await supabase.auth.getSession()
@@ -115,7 +115,7 @@ export function sanitizePayload<T extends Record<string, unknown>>(payload: T, s
 }
 
 export async function withRateLimit(req: Request, key?: string) {
-  const supabase = createSupabaseServerClient()
+  const supabase = await createSupabaseServerClient()
   const {
     data: { session },
   } = await supabase.auth.getSession()

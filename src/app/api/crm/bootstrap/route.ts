@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { db } from '@/lib/db'
 
 const DEFAULT_PIPELINE_STAGES = [
@@ -14,7 +14,7 @@ const DEFAULT_PIPELINE_STAGES = [
 
 export async function GET() {
   try {
-    const supabase = createSupabaseServerClient()
+    const supabase = await createSupabaseServerClient()
 
     const {
       data: { session },
@@ -95,23 +95,42 @@ export async function GET() {
         const workspace = membership?.workspace || null
         const workspaceId = workspace?.id
 
-        const [members, tags] = workspaceId
+        const [members, tags, memberships] = workspaceId
           ? await Promise.all([
               db.membership.findMany({ where: { workspaceId }, include: { user: true } }),
               db.tag.findMany({ where: { workspaceId }, orderBy: { name: 'asc' } }),
+              db.membership.findMany({
+                where: { userId: user.id },
+                include: { workspace: true },
+                orderBy: { joinedAt: 'asc' },
+              }),
             ])
-          : [[], []]
+          : [[], [], []]
+
+        const serializedMemberships = memberships.map((m) => ({
+          id: m.id,
+          userId: m.userId,
+          workspaceId: m.workspaceId,
+          role: m.role,
+          joinedAt: m.joinedAt,
+          workspace: m.workspace ? {
+            id: m.workspace.id,
+            name: m.workspace.name,
+            slug: m.workspace.slug,
+            plan: m.workspace.plan,
+          } : null,
+        }))
 
         return NextResponse.json({
           ok: true,
-          data: { user, workspace, members, tags, freshlyProvisioned: false },
+          data: { user, workspace, members, tags, memberships: serializedMemberships, freshlyProvisioned: false },
         })
       }
 
       return NextResponse.json({ ok: true, data: null })
     }
 
-    const user = await db.user.findFirst({
+    let user = await db.user.findFirst({
       where: { email: session.user.email || undefined },
     })
 
@@ -149,6 +168,7 @@ export async function GET() {
           workspaceId: workspace.id,
           role: 'owner',
         },
+        include: { workspace: true },
       })
 
       const pipeline = await db.pipeline.create({
@@ -190,14 +210,33 @@ export async function GET() {
     const workspace = membership.workspace
     const workspaceId = workspace.id
 
-    const [members, tags] = await Promise.all([
+    const [members, tags, memberships] = await Promise.all([
       db.membership.findMany({ where: { workspaceId }, include: { user: true } }),
       db.tag.findMany({ where: { workspaceId }, orderBy: { name: 'asc' } }),
+      db.membership.findMany({
+        where: { userId: user.id },
+        include: { workspace: true },
+        orderBy: { joinedAt: 'asc' },
+      }),
     ])
+
+    const serializedMemberships = memberships.map((m) => ({
+      id: m.id,
+      userId: m.userId,
+      workspaceId: m.workspaceId,
+      role: m.role,
+      joinedAt: m.joinedAt,
+      workspace: m.workspace ? {
+        id: m.workspace.id,
+        name: m.workspace.name,
+        slug: m.workspace.slug,
+        plan: m.workspace.plan,
+      } : null,
+    }))
 
     return NextResponse.json({
       ok: true,
-      data: { user, workspace, members, tags, freshlyProvisioned: false },
+      data: { user, workspace, members, tags, memberships: serializedMemberships, freshlyProvisioned: false },
     })
   } catch (error) {
     console.error('Bootstrap error:', error)

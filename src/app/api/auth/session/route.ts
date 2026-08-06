@@ -4,7 +4,7 @@ import { db } from '@/lib/db'
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createSupabaseServerClient()
+    const supabase = await createSupabaseServerClient()
 
     const {
       data: { session },
