@@ -16,7 +16,7 @@ export function EntityDrawer() {
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && close()}>
-      <SheetContent side="right" className="w-full sm:max-w-[640px] p-0 overflow-y-auto scroll-area">
+      <SheetContent side="right" className="w-full h-full sm:max-w-[640px] p-0 overflow-y-auto scroll-area">
         {!id && type === 'lead-new' && <LeadDrawer mode="create" onClose={close} />}
         {id && type === 'lead' && <LeadDrawer id={id} onClose={close} />}
         {!id && type === 'deal-new' && <DealDrawer mode="create" onClose={close} />}

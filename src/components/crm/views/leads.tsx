@@ -35,6 +35,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Select,
@@ -108,6 +109,7 @@ import {
   Download,
   CheckCircle2,
   RefreshCw,
+  AlertTriangle,
 } from 'lucide-react'
 
 // ----------------------------------------------------------------
@@ -429,34 +431,57 @@ function SortHeader({
 function ActionsCell({ lead }: { lead: Lead }) {
   const openDrawer = useAppStore((s) => s.openDrawer)
   const { remove } = useLeadMutations()
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6 -mr-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <MoreHorizontal className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-        <DropdownMenuItem onClick={() => openDrawer('lead', lead.id)}>
-          <Pencil className="size-3.5" /> Edit
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          variant="destructive"
-          onClick={() => {
-            remove.mutate(lead.id)
-          }}
-        >
-          <Trash2 className="size-3.5" /> Delete
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 -mr-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MoreHorizontal className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenuItem onClick={() => openDrawer('lead', lead.id)}>
+            <Pencil className="size-3.5" /> Edit
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => setConfirmOpen(true)}
+          >
+            <Trash2 className="size-3.5" /> Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete lead?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{lead.fullName}</strong>. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                remove.mutate(lead.id)
+                setConfirmOpen(false)
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 

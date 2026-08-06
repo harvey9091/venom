@@ -7,6 +7,7 @@ import { Toaster } from 'sonner'
 import { useThemeStore, applyTheme } from '@/lib/theme'
 import { useAppStore } from '@/lib/store'
 import { useRealtime } from '@/lib/realtime'
+import { useAuth } from '@/hooks/use-auth'
 import { ThinkingState } from '@/components/crm/thinking'
 import { AnimatePresence, motion } from 'framer-motion'
 
@@ -20,10 +21,6 @@ const queryClient = new QueryClient({
   },
 })
 
-/**
- * Bootstrap identity: pick the first user + their primary workspace from DB.
- * Shows a centered Thinking Orb during initial load instead of a generic spinner.
- */
 function IdentityBootstrap({ children }: { children: React.ReactNode }) {
   const setUser = useAppStore((s) => s.setUser)
   const setWorkspace = useAppStore((s) => s.setWorkspace)
@@ -31,11 +28,17 @@ function IdentityBootstrap({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false)
   const [label, setLabel] = useState('Preparing workspace…')
   const [progress, setProgress] = useState(0)
+  const { isLoading, isAuthenticated } = useAuth()
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
+        if (!isAuthenticated) {
+          setReady(true)
+          return
+        }
+
         setLabel('Preparing workspace…')
         setProgress(10)
         await new Promise((r) => setTimeout(r, 350))
@@ -65,7 +68,7 @@ function IdentityBootstrap({ children }: { children: React.ReactNode }) {
       }
     })()
     return () => { cancelled = true }
-  }, [setUser, setWorkspace, setTags])
+  }, [setUser, setWorkspace, setTags, isAuthenticated])
 
   useRealtime()
 
@@ -103,8 +106,6 @@ function ThemeApplier({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (config.theme !== prevTheme.current) {
-      // Subtle orb during theme transition (< 500ms).
-      // Defer setThinking via microtask to avoid "setState in effect" lint error.
       Promise.resolve().then(() => setThinking(true))
       applyTheme(config)
       if (pendingTimer.current) clearTimeout(pendingTimer.current)

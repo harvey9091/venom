@@ -1,6 +1,6 @@
 /**
  * TanStack Query hooks for all CRM resources.
- * Each hook fetches from /api/crm/<resource>?workspaceId=...
+ * Each hook fetches from /api/crm/<resource>
  * and provides optimistic-aware mutations.
  */
 'use client'
@@ -15,6 +15,15 @@ import type {
 
 const BASE = '/api/crm'
 
+async function handleResponse<T>(r: Response): Promise<T> {
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({ error: r.statusText }))
+    throw new Error(j.error || `HTTP ${r.status}`)
+  }
+  const j = await r.json()
+  return j.data as T
+}
+
 function useWorkspaceId() {
   return useAppStore((s) => s.workspace?.id)
 }
@@ -28,8 +37,7 @@ export function useDashboard() {
     queryKey: ['dashboard', ws],
     queryFn: async () => {
       const r = await fetch(`${BASE}/dashboard?workspaceId=${ws}`)
-      const j = await r.json()
-      return j.data
+      return handleResponse(r)
     },
     enabled: !!ws,
     refetchInterval: 30_000,
@@ -45,8 +53,7 @@ export function useCompanies(q = '') {
     queryKey: ['companies', ws, q],
     queryFn: async () => {
       const r = await fetch(`${BASE}/companies?workspaceId=${ws}&q=${encodeURIComponent(q)}`)
-      const j = await r.json()
-      return j.data as Company[]
+      return handleResponse<Company[]>(r)
     },
     enabled: !!ws,
   })
@@ -62,7 +69,7 @@ export function useCompanyMutations() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspaceId: ws, ...payload }),
       })
-      return (await r.json()).data
+      return handleResponse<Company>(r)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['companies'] })
@@ -76,7 +83,7 @@ export function useCompanyMutations() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, ...patch }),
       })
-      return (await r.json()).data
+      return handleResponse<Company>(r)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['companies'] })
@@ -85,11 +92,15 @@ export function useCompanyMutations() {
   })
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      await fetch(`${BASE}/companies`, {
+      const r = await fetch(`${BASE}/companies`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
       })
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({ error: r.statusText }))
+        throw new Error(j.error || `HTTP ${r.status}`)
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['companies'] })
@@ -209,7 +220,9 @@ export function useLeadMutations() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['leads'] })
       qc.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Lead updated')
     },
+    onError: () => toast.error('Could not update lead'),
   })
   const remove = useMutation({
     mutationFn: async (id: string) => {
@@ -255,7 +268,11 @@ export function usePipelineMutations() {
       })
       return (await r.json()).data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pipelines'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pipelines'] })
+      toast.success('Pipeline created')
+    },
+    onError: () => toast.error('Could not create pipeline'),
   })
   const update = useMutation({
     mutationFn: async ({ id, ...patch }: any) => {
@@ -266,7 +283,11 @@ export function usePipelineMutations() {
       })
       return (await r.json()).data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pipelines'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pipelines'] })
+      toast.success('Pipeline updated')
+    },
+    onError: () => toast.error('Could not update pipeline'),
   })
   const remove = useMutation({
     mutationFn: async (id: string) => {
@@ -276,7 +297,11 @@ export function usePipelineMutations() {
         body: JSON.stringify({ id }),
       })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pipelines'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pipelines'] })
+      toast.success('Pipeline deleted')
+    },
+    onError: () => toast.error('Could not delete pipeline'),
   })
   return { create, update, remove }
 }
@@ -326,7 +351,9 @@ export function useDealMutations() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['deals'] })
       qc.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Deal updated')
     },
+    onError: () => toast.error('Could not update deal'),
   })
   const remove = useMutation({
     mutationFn: async (id: string) => {
@@ -377,7 +404,9 @@ export function useTaskMutations() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Task created')
     },
+    onError: () => toast.error('Could not create task'),
   })
   const update = useMutation({
     mutationFn: async ({ id, ...patch }: Partial<Task> & { id: string }) => {
@@ -391,7 +420,9 @@ export function useTaskMutations() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Task updated')
     },
+    onError: () => toast.error('Could not update task'),
   })
   const remove = useMutation({
     mutationFn: async (id: string) => {
@@ -401,7 +432,11 @@ export function useTaskMutations() {
         body: JSON.stringify({ id }),
       })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      toast.success('Task deleted')
+    },
+    onError: () => toast.error('Could not delete task'),
   })
   return { create, update, remove }
 }
@@ -434,7 +469,11 @@ export function useNoteMutations() {
       })
       return (await r.json()).data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['notes'] }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['notes'] })
+      toast.success('Note created')
+    },
+    onError: () => toast.error('Could not create note'),
   })
   const update = useMutation({
     mutationFn: async ({ id, ...patch }: Partial<Note> & { id: string }) => {
@@ -445,7 +484,11 @@ export function useNoteMutations() {
       })
       return (await r.json()).data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['notes'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notes'] })
+      toast.success('Note updated')
+    },
+    onError: () => toast.error('Could not update note'),
   })
   const remove = useMutation({
     mutationFn: async (id: string) => {
@@ -455,7 +498,11 @@ export function useNoteMutations() {
         body: JSON.stringify({ id }),
       })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['notes'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notes'] })
+      toast.success('Note deleted')
+    },
+    onError: () => toast.error('Could not delete note'),
   })
   return { create, update, remove }
 }
@@ -488,7 +535,11 @@ export function useFileMutations() {
       })
       return (await r.json()).data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['files'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['files'] })
+      toast.success('File uploaded')
+    },
+    onError: () => toast.error('Could not upload file'),
   })
   const remove = useMutation({
     mutationFn: async (id: string) => {
@@ -498,7 +549,11 @@ export function useFileMutations() {
         body: JSON.stringify({ id }),
       })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['files'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['files'] })
+      toast.success('File deleted')
+    },
+    onError: () => toast.error('Could not delete file'),
   })
   return { create, remove }
 }
@@ -531,7 +586,11 @@ export function useCalendarMutations() {
       })
       return (await r.json()).data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['calendar'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['calendar'] })
+      toast.success('Event created')
+    },
+    onError: () => toast.error('Could not create event'),
   })
   const update = useMutation({
     mutationFn: async ({ id, ...patch }: Partial<CalendarEvent> & { id: string }) => {
@@ -542,7 +601,11 @@ export function useCalendarMutations() {
       })
       return (await r.json()).data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['calendar'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['calendar'] })
+      toast.success('Event updated')
+    },
+    onError: () => toast.error('Could not update event'),
   })
   const remove = useMutation({
     mutationFn: async (id: string) => {
@@ -552,7 +615,11 @@ export function useCalendarMutations() {
         body: JSON.stringify({ id }),
       })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['calendar'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['calendar'] })
+      toast.success('Event deleted')
+    },
+    onError: () => toast.error('Could not delete event'),
   })
   return { create, update, remove }
 }
@@ -585,7 +652,11 @@ export function useTagMutations() {
       })
       return (await r.json()).data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tags'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tags'] })
+      toast.success('Tag created')
+    },
+    onError: () => toast.error('Could not create tag'),
   })
   const remove = useMutation({
     mutationFn: async (id: string) => {
@@ -595,7 +666,11 @@ export function useTagMutations() {
         body: JSON.stringify({ id }),
       })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tags'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tags'] })
+      toast.success('Tag deleted')
+    },
+    onError: () => toast.error('Could not delete tag'),
   })
   return { create, remove }
 }
@@ -645,6 +720,7 @@ export function useNotificationMutations() {
       })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+    onError: () => toast.error('Could not update notification'),
   })
   const markAllRead = useMutation({
     mutationFn: async (userId: string) => {
@@ -654,7 +730,11 @@ export function useNotificationMutations() {
         body: JSON.stringify({ markAllForUserId: userId }),
       })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+      toast.success('All notifications marked as read')
+    },
+    onError: () => toast.error('Could not update notifications'),
   })
   return { markRead, markAllRead }
 }
@@ -687,7 +767,11 @@ export function useAutomationMutations() {
       })
       return (await r.json()).data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['automations'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['automations'] })
+      toast.success('Automation created')
+    },
+    onError: () => toast.error('Could not create automation'),
   })
   const update = useMutation({
     mutationFn: async ({ id, ...patch }: any) => {
@@ -698,7 +782,11 @@ export function useAutomationMutations() {
       })
       return (await r.json()).data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['automations'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['automations'] })
+      toast.success('Automation updated')
+    },
+    onError: () => toast.error('Could not update automation'),
   })
   const remove = useMutation({
     mutationFn: async (id: string) => {
@@ -708,7 +796,11 @@ export function useAutomationMutations() {
         body: JSON.stringify({ id }),
       })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['automations'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['automations'] })
+      toast.success('Automation deleted')
+    },
+    onError: () => toast.error('Could not delete automation'),
   })
   return { create, update, remove }
 }
@@ -740,7 +832,11 @@ export function useSettingsMutations() {
       })
       return (await r.json()).data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      toast.success('Saved')
+    },
+    onError: () => toast.error('Could not save changes'),
   })
   const patch = useMutation({
     mutationFn: async (payload: any) => {
@@ -751,7 +847,11 @@ export function useSettingsMutations() {
       })
       return (await r.json()).data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      toast.success('Updated')
+    },
+    onError: () => toast.error('Could not update'),
   })
   const remove = useMutation({
     mutationFn: async (payload: any) => {
@@ -761,7 +861,11 @@ export function useSettingsMutations() {
         body: JSON.stringify(payload),
       })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      toast.success('Deleted')
+    },
+    onError: () => toast.error('Could not delete'),
   })
   return { post, patch, remove }
 }

@@ -289,7 +289,7 @@ create table if not exists public.notes (
   lead_id      uuid references public.leads(id) on delete cascade,
   contact_id   uuid references public.contacts(id) on delete set null,
   deal_id      uuid references public.deals(id) on delete set null,
-  company_id   uuid references public.companies(id) on delete cascade,
+  company_id   uuid references public.companies(id) on delete set null,
   title        text,
   body         text not null,
   pinned       boolean default false,
@@ -321,7 +321,7 @@ create table if not exists public.activities (
   lead_id      uuid references public.leads(id) on delete cascade,
   contact_id   uuid references public.contacts(id) on delete set null,
   deal_id      uuid references public.deals(id) on delete cascade,
-  company_id   uuid references public.companies(id) on delete cascade,
+  company_id   uuid references public.companies(id) on delete set null,
   type         text not null,
   summary      text not null,
   meta         jsonb,
@@ -905,6 +905,61 @@ create policy "venom_avatars_read" on storage.objects for select
   using (bucket_id = 'venom-avatars');
 create policy "venom_avatars_write" on storage.objects for insert
   with check (bucket_id = 'venom-avatars');
+
+-- -------------------------------------------------------------
+-- 11. Missing indexes and constraints (Phase 1 fixes)
+-- -------------------------------------------------------------
+
+create index if not exists idx_tags_workspace on public.tags(workspace_id);
+create index if not exists idx_custom_fields_workspace on public.custom_fields(workspace_id);
+create index if not exists idx_entity_tags_workspace on public.entity_tags(workspace_id);
+create index if not exists idx_activities_lead on public.activities(lead_id);
+create index if not exists idx_activities_deal on public.activities(deal_id);
+
+-- Tag unique constraint per workspace
+create unique index if not exists idx_tags_workspace_name on public.tags(workspace_id, name);
+
+-- -------------------------------------------------------------
+-- 12. Missing RLS policies (Phase 1 fixes)
+-- -------------------------------------------------------------
+
+-- Memberships: owners can INSERT/UPDATE/DELETE
+create policy "memberships_owner_write" on public.memberships for all
+  using (workspace_id in (
+    select workspace_id from public.memberships m
+    join public.users u on u.id = m.user_id
+    where u.auth_id = auth.uid() and m.role = 'owner'
+  ))
+  with check (workspace_id in (
+    select workspace_id from public.memberships m
+    join public.users u on u.id = m.user_id
+    where u.auth_id = auth.uid() and m.role = 'owner'
+  ));
+
+-- Notifications: users can update their own notifications (mark as read)
+create policy "notifications_self_update" on public.notifications for update
+  using (user_id in (select id from public.users where auth_id = auth.uid()));
+
+-- -------------------------------------------------------------
+-- 13. Meetings table (was missing from SQL)
+-- -------------------------------------------------------------
+
+create table if not exists public.meetings (
+  id         uuid primary key default uuid_generate_v4(),
+  event_id   uuid not null references public.calendar_events(id) on delete cascade,
+  contact_id uuid references public.contacts(id) on delete set null,
+  host_id    uuid not null references public.users(id) on delete cascade,
+  outcome    meeting_outcome,
+  notes      text,
+  created_at timestamptz default now()
+);
+
+alter table public.meetings enable row level security;
+create policy "ws_meetings_read" on public.meetings for select
+  using (event_id in (select id from public.calendar_events where workspace_id in (select public.current_user_workspace_ids())));
+create policy "ws_meetings_write" on public.meetings for all
+  using (event_id in (select id from public.calendar_events where workspace_id in (select public.current_user_workspace_ids())))
+  with check (event_id in (select id from public.calendar_events where workspace_id in (select public.current_user_workspace_ids())));
 
 -- -------------------------------------------------------------
 -- Done. Schema is ready for production use.

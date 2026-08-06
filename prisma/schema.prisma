@@ -23,6 +23,7 @@ datasource db {
 
 model User {
   id            String   @id @default(uuid())
+  authId        String?  @unique @db.Uuid
   email         String   @unique
   name          String
   avatarUrl     String?
@@ -475,14 +476,15 @@ model Tag {
 // entityId is intentionally NOT a FK — it's a polymorphic reference resolved at the app layer.
 // Cascade deletes are handled in the data layer (delete EntityTag rows when an entity is removed).
 model EntityTag {
-  id         String   @id @default(uuid())
+  id          String   @id @default(uuid())
   workspaceId String
-  tagId      String
-  entityType String   // lead | contact | deal | company | task | note
-  entityId   String
-  createdAt  DateTime @default(now())
+  tagId       String
+  entityType  String   // lead | contact | deal | company | task | note
+  entityId    String
+  createdAt   DateTime @default(now())
 
-  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tag         Tag       @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@schema("public")
 }
@@ -570,6 +572,17 @@ model ApiKey {
 
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   creator      User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
+}
+
+// Workspace preferences (nav mode, feature flags, etc.)
+model WorkspacePreference {
+  workspaceId String   @id
+  navMode     String   @default("sidebar") // sidebar | dock
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@schema("public")
 }

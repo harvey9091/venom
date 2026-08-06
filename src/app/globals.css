@@ -717,6 +717,41 @@ input[type="text"], input[type="email"], input[type="number"], input[type="searc
 }
 
 /* ============================================================
+   Auth UI — Symbiote Premium Animations
+   ============================================================ */
+@keyframes symbiote-flow {
+  0%, 100% { background-position: 0% 50%; transform: rotate(0deg); }
+  25% { background-position: 100% 0%; transform: rotate(1deg); }
+  50% { background-position: 100% 100%; transform: rotate(0deg); }
+  75% { background-position: 0% 100%; transform: rotate(-1deg); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.08); }
+}
+
+@keyframes liquid-morph {
+  0%, 100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; transform: rotate(0deg); }
+  25% { border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
+  50% { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; transform: rotate(180deg); }
+  75% { border-radius: 50% 40% 50% 60% / 35% 45% 55% 65%; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-symbiote-flow { animation: symbiote-flow 8s ease-in-out infinite; }
+.animate-glow-pulse { animation: glow-pulse 4s ease-in-out infinite; }
+.animate-liquid-morph { animation: liquid-morph 12s ease-in-out infinite; }
+.animate-fade-in-up { animation: fade-in-up 0.6s ease-out both; }
+.animate-fade-in-up-delay-1 { animation: fade-in-up 0.6s ease-out 0.1s both; }
+.animate-fade-in-up-delay-2 { animation: fade-in-up 0.6s ease-out 0.2s both; }
+.animate-fade-in-up-delay-3 { animation: fade-in-up 0.6s ease-out 0.3s both; }
+
+/* ============================================================
    Phase 6 — Respect prefers-reduced-motion
    Disables the premium animations for users who request it.
    ============================================================ */
@@ -729,5 +764,21 @@ input[type="text"], input[type="email"], input[type="number"], input[type="searc
   }
   .pending-conn-line { animation: none !important; }
   .port-dot--source-active { animation: none !important; }
+}
+
+/* ============================================================
+   Mobile: full-screen entity drawers
+   SheetContent on mobile (<sm) should cover the whole viewport.
+   ============================================================ */
+@media (max-width: 639px) {
+  [data-radix-drawer-content][data-side="right"] {
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: 100vw !important;
+    border-radius: 0 !important;
+  }
+  [data-radix-drawer-content] {
+    border-radius: 0 !important;
+  }
 }
 

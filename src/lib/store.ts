@@ -1,6 +1,6 @@
 /**
  * App store — current user, workspace, navigation, command palette,
- * notifications, drawers.
+ * notifications, drawers, auth.
  */
 'use client'
 
@@ -9,13 +9,14 @@ import type {
   User, Workspace, RouteState, ViewKey, Notification, Tag,
 } from './types'
 
-interface AppState {
-  // Identity
+interface AuthState {
   user: User | null
-  workspace: Workspace | null
   setUser: (u: User | null) => void
+  workspace: Workspace | null
   setWorkspace: (w: Workspace | null) => void
+}
 
+interface AppState extends AuthState {
   // Navigation (client-side router)
   route: RouteState
   navigate: (view: ViewKey, params?: Record<string, unknown>) => void
@@ -62,11 +63,13 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  // Auth state
   user: null,
-  workspace: null,
   setUser: (u) => set({ user: u }),
+  workspace: null,
   setWorkspace: (w) => set({ workspace: w }),
 
+  // Navigation
   route: { view: 'dashboard' },
   history: [{ view: 'dashboard' }],
   forwardStack: [],
@@ -91,9 +94,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
   },
 
+  // Command palette
   commandOpen: false,
   setCommandOpen: (commandOpen) => set({ commandOpen }),
 
+  // Notifications
   notifOpen: false,
   setNotifOpen: (notifOpen) => set({ notifOpen }),
   notifications: [],
@@ -106,22 +111,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
     })),
 
+  // Drawer
   drawer: null,
   openDrawer: (type, id) => set({ drawer: { type, id } }),
   closeDrawer: () => set({ drawer: null }),
 
+  // Sidebar
   sidebarCollapsed: false,
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
 
+  // Tags
   tags: [],
   setTags: (tags) => set({ tags }),
 
+  // Realtime
   realtimeConnected: false,
   setRealtimeConnected: (realtimeConnected) => set({ realtimeConnected }),
 
+  // AI Assistant
   assistantOpen: false,
   setAssistantOpen: (assistantOpen) => set({ assistantOpen }),
   assistantSeedPrompt: null,
-  openAssistant: (seedPrompt) => set({ assistantOpen: true, assistantSeedPrompt: seedPrompt || null }),
+  openAssistant: (assistantSeedPrompt) => set({ assistantOpen: true, assistantSeedPrompt: assistantSeedPrompt || null }),
 }))

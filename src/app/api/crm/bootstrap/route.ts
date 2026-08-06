@@ -1,22 +1,6 @@
-/**
- * GET /api/crm/bootstrap
- *
- * Resolves the current user's identity + workspace for the SPA bootstrap.
- *
- * Production (Supabase Auth):
- *   - Reads the Supabase auth session
- *   - Returns the user's profile + primary workspace + members + tags
- *
- * Dev (no auth):
- *   - Returns the first user + their first workspace (if seeded via seed-demo.ts)
- *   - If the database is EMPTY (no users), provisions a fresh workspace:
- *       • Creates a default user (dev@venom.crm)
- *       • Creates a workspace ("My Workspace")
- *       • Creates an owner membership
- *       • Creates a default pipeline with 7 stages
- *     This mirrors the first-login flow in production. No demo records.
- */
-import { db, ok, serialize } from '@/lib/api'
+import { type NextRequest, NextResponse } from 'next/server'
+import { createSupabaseServerClient } from '@/lib/supabase'
+import { db } from '@/lib/db'
 
 const DEFAULT_PIPELINE_STAGES = [
   { name: 'Lead In',     color: '#94a3b8', probability: 10 },
@@ -29,87 +13,197 @@ const DEFAULT_PIPELINE_STAGES = [
 ]
 
 export async function GET() {
-  // Try to find an existing user
-  let user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
+  try {
+    const supabase = createSupabaseServerClient()
 
-  // ── First-login provisioning (empty database) ──────────────────────
-  // In production this would be triggered by a Supabase Auth post-signup
-  // trigger or an Edge Function. Here we do it inline for the dev env.
-  if (!user) {
-    user = await db.user.create({
-      data: {
-        email: 'dev@venom.crm',
-        name: 'New User',
-        jobTitle: 'Owner',
-      },
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session) {
+      if (process.env.NODE_ENV === 'development') {
+        let user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
+
+        if (!user) {
+          user = await db.user.create({
+            data: {
+              email: 'dev@venom.crm',
+              name: 'New User',
+              jobTitle: 'Owner',
+            },
+          })
+
+          const workspace = await db.workspace.create({
+            data: {
+              slug: `ws-${Date.now().toString(36)}`,
+              name: 'My Workspace',
+              description: 'Your Venom CRM workspace',
+              accentColor: '#d4a373',
+              plan: 'free',
+            },
+          })
+
+          await db.membership.create({
+            data: {
+              userId: user.id,
+              workspaceId: workspace.id,
+              role: 'owner',
+            },
+          })
+
+          const pipeline = await db.pipeline.create({
+            data: {
+              workspaceId: workspace.id,
+              name: 'Sales Pipeline',
+              isDefault: true,
+              description: 'Standard sales pipeline',
+            },
+          })
+
+          for (let i = 0; i < DEFAULT_PIPELINE_STAGES.length; i++) {
+            const s = DEFAULT_PIPELINE_STAGES[i]
+            await db.stage.create({
+              data: {
+                pipelineId: pipeline.id,
+                name: s.name,
+                color: s.color,
+                probability: s.probability,
+                order: i,
+                isWon: !!s.isWon,
+                isLost: !!s.isLost,
+              },
+            })
+          }
+
+          return NextResponse.json({
+            ok: true,
+            data: {
+              user: { id: user.id, email: user.email, name: user.name },
+              workspace: { id: workspace.id, name: workspace.name, slug: workspace.slug },
+              members: [],
+              tags: [],
+              freshlyProvisioned: true,
+            },
+          })
+        }
+
+        const membership = await db.membership.findFirst({
+          where: { userId: user.id },
+          include: { workspace: true },
+          orderBy: { joinedAt: 'asc' },
+        })
+        const workspace = membership?.workspace || null
+        const workspaceId = workspace?.id
+
+        const [members, tags] = workspaceId
+          ? await Promise.all([
+              db.membership.findMany({ where: { workspaceId }, include: { user: true } }),
+              db.tag.findMany({ where: { workspaceId }, orderBy: { name: 'asc' } }),
+            ])
+          : [[], []]
+
+        return NextResponse.json({
+          ok: true,
+          data: { user, workspace, members, tags, freshlyProvisioned: false },
+        })
+      }
+
+      return NextResponse.json({ ok: true, data: null })
+    }
+
+    const user = await db.user.findFirst({
+      where: { email: session.user.email || undefined },
     })
 
-    const workspace = await db.workspace.create({
-      data: {
-        slug: `ws-${Date.now().toString(36)}`,
-        name: 'My Workspace',
-        description: 'Your Venom CRM workspace',
-        accentColor: '#d4a373',
-        plan: 'free',
-      },
-    })
-
-    await db.membership.create({
-      data: {
-        userId: user.id,
-        workspaceId: workspace.id,
-        role: 'owner',
-      },
-    })
-
-    // Default pipeline + stages — no demo deals
-    const pipeline = await db.pipeline.create({
-      data: {
-        workspaceId: workspace.id,
-        name: 'Sales Pipeline',
-        isDefault: true,
-        description: 'Standard sales pipeline',
-      },
-    })
-    for (let i = 0; i < DEFAULT_PIPELINE_STAGES.length; i++) {
-      const s = DEFAULT_PIPELINE_STAGES[i]
-      await db.stage.create({
+    if (!user) {
+      user = await db.user.create({
         data: {
-          pipelineId: pipeline.id,
-          name: s.name,
-          color: s.color,
-          probability: s.probability,
-          order: i,
-          isWon: !!(s as any).isWon,
-          isLost: !!(s as any).isLost,
+          email: session.user.email || '',
+          name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
+          avatarUrl: session.user.user_metadata?.avatar_url || null,
+          jobTitle: session.user.user_metadata?.job_title || null,
         },
       })
     }
 
-    return ok(serialize({
-      user,
-      workspace,
-      members: [],
-      tags: [],
-      freshlyProvisioned: true,
-    }))
+    let membership = await db.membership.findFirst({
+      where: { userId: user.id },
+      include: { workspace: true },
+      orderBy: { joinedAt: 'asc' },
+    })
+
+    if (!membership) {
+      const workspace = await db.workspace.create({
+        data: {
+          slug: `ws-${Date.now().toString(36)}`,
+          name: 'My Workspace',
+          description: 'Your Venom CRM workspace',
+          accentColor: '#d4a373',
+          plan: 'free',
+        },
+      })
+
+      membership = await db.membership.create({
+        data: {
+          userId: user.id,
+          workspaceId: workspace.id,
+          role: 'owner',
+        },
+      })
+
+      const pipeline = await db.pipeline.create({
+        data: {
+          workspaceId: workspace.id,
+          name: 'Sales Pipeline',
+          isDefault: true,
+          description: 'Standard sales pipeline',
+        },
+      })
+
+      for (let i = 0; i < DEFAULT_PIPELINE_STAGES.length; i++) {
+        const s = DEFAULT_PIPELINE_STAGES[i]
+        await db.stage.create({
+          data: {
+            pipelineId: pipeline.id,
+            name: s.name,
+            color: s.color,
+            probability: s.probability,
+            order: i,
+            isWon: !!s.isWon,
+            isLost: !!s.isLost,
+          },
+        })
+      }
+
+      return NextResponse.json({
+        ok: true,
+        data: {
+          user: { id: user.id, email: user.email, name: user.name },
+          workspace: { id: workspace.id, name: workspace.name, slug: workspace.slug },
+          members: [],
+          tags: [],
+          freshlyProvisioned: true,
+        },
+      })
+    }
+
+    const workspace = membership.workspace
+    const workspaceId = workspace.id
+
+    const [members, tags] = await Promise.all([
+      db.membership.findMany({ where: { workspaceId }, include: { user: true } }),
+      db.tag.findMany({ where: { workspaceId }, orderBy: { name: 'asc' } }),
+    ])
+
+    return NextResponse.json({
+      ok: true,
+      data: { user, workspace, members, tags, freshlyProvisioned: false },
+    })
+  } catch (error) {
+    console.error('Bootstrap error:', error)
+    return NextResponse.json(
+      { ok: false, error: 'Failed to bootstrap' },
+      { status: 500 }
+    )
   }
-
-  // ── Existing user ──────────────────────────────────────────────────
-  const membership = await db.membership.findFirst({
-    where: { userId: user.id },
-    include: { workspace: true },
-    orderBy: { joinedAt: 'asc' },
-  })
-  const workspace = membership?.workspace || null
-  const workspaceId = workspace?.id
-
-  const [members, tags] = workspaceId
-    ? await Promise.all([
-        db.membership.findMany({ where: { workspaceId }, include: { user: true } }),
-        db.tag.findMany({ where: { workspaceId }, orderBy: { name: 'asc' } }),
-      ])
-    : [[], []]
-
-  return ok(serialize({ user, workspace, members, tags, freshlyProvisioned: false }))
 }
