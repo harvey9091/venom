@@ -83,6 +83,8 @@
   /* glass-bg derives from background so every theme gets a correct translucent header */
   --glass-bg: color-mix(in oklch, var(--background) 78%, transparent);
   --shadow-color: 220deg 30% 50%;
+  /* Automation editor connection line color (theme-aware) */
+  --connection-color: oklch(0.5 0 0);
 }
 
 .dark {
@@ -117,6 +119,7 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --connection-color: oklch(0.7 0.005 50);
 }
 
 /* =========================================================================
@@ -156,6 +159,7 @@
   --sidebar-border: oklch(0.30 0.012 50);
   --sidebar-ring: oklch(0.78 0.13 50);
   --glass-bg: color-mix(in oklch, var(--background) 80%, transparent);
+  --connection-color: oklch(0.7 0.03 50);
 }
 
 /* =========================================================================
@@ -195,6 +199,7 @@
   --sidebar-border: oklch(0.88 0.012 60);
   --sidebar-ring: oklch(0.55 0.16 35);
   --glass-bg: color-mix(in oklch, var(--background) 80%, transparent);
+  --connection-color: oklch(0.5 0.02 50);
 }
 
 /* =========================================================================
@@ -237,6 +242,7 @@
   --glass-bg: color-mix(in oklch, var(--background) 65%, transparent);
   /* Dot background slightly blurs in Glass theme for a frosted workflow editor feel */
   --dot-blur: blur(0.6px);
+  --connection-color: oklch(0.7 0.12 200);
 }
 
 /* =========================================================================
@@ -276,6 +282,7 @@
   --sidebar-border: oklch(0.90 0 0);
   --sidebar-ring: oklch(0.50 0 0);
   --glass-bg: color-mix(in oklch, var(--background) 82%, transparent);
+  --connection-color: oklch(0.6 0 0);
 }
 
 /* =========================================================================
@@ -315,6 +322,7 @@
   --sidebar-border: oklch(0.32 0.003 260);
   --sidebar-ring: oklch(0.60 0.005 260);
   --glass-bg: color-mix(in oklch, var(--background) 82%, transparent);
+  --connection-color: oklch(0.7 0.005 260);
 }
 
 /* =========================================================================
@@ -354,6 +362,7 @@
   --sidebar-border: oklch(0.20 0 0);
   --sidebar-ring: oklch(0.80 0 0);
   --glass-bg: color-mix(in oklch, var(--background) 85%, transparent);
+  --connection-color: oklch(0.6 0.15 240);
 }
 
 /* =========================================================================
@@ -393,6 +402,7 @@
   --sidebar-border: oklch(0.93 0 0);
   --sidebar-ring: oklch(0.40 0 0);
   --glass-bg: color-mix(in oklch, var(--background) 88%, transparent);
+  --connection-color: oklch(0.5 0 0);
 }
 
 /* =========================================================================
@@ -442,6 +452,18 @@ body {
     /* Floating Dock mode: extra side breathing room */
     --dock-side-margin: 3rem;
     --dock-side-margin-xl: 5rem;
+
+    /* ============================================================
+       Phase 6 — Automation editor shadow system
+       Used by node cards in the workflow canvas. Resolved at use
+       site so --primary (in --shadow-node-selected) tracks theme.
+       ============================================================ */
+    --shadow-xs: 0 1px 2px 0 hsl(var(--shadow-color) / 0.05);
+    --shadow-sm: 0 1px 3px 0 hsl(var(--shadow-color) / 0.08), 0 1px 2px -1px hsl(var(--shadow-color) / 0.08);
+    --shadow-md: 0 4px 6px -1px hsl(var(--shadow-color) / 0.08), 0 2px 4px -2px hsl(var(--shadow-color) / 0.08);
+    --shadow-node: 0 2px 8px -2px hsl(var(--shadow-color) / 0.10), 0 1px 3px -1px hsl(var(--shadow-color) / 0.08);
+    --shadow-node-hover: 0 8px 24px -4px hsl(var(--shadow-color) / 0.14), 0 2px 6px -2px hsl(var(--shadow-color) / 0.10);
+    --shadow-node-selected: 0 0 0 1px var(--primary), 0 8px 32px -4px color-mix(in oklch, var(--primary) 25%, transparent);
   }
 
   @media (min-width: 768px) {
@@ -611,3 +633,101 @@ input[type="text"], input[type="email"], input[type="number"], input[type="searc
 }
 .inline-edit-cell:hover { background: color-mix(in oklch, var(--primary) 8%, transparent); }
 .inline-edit-cell:focus { outline: 2px solid var(--ring); outline-offset: 1px; background: var(--background); }
+
+/* ============================================================
+   Phase 6 — Automation editor premium node system
+   Shadow utilities (resolved against --shadow-color / --primary)
+   ============================================================ */
+.shadow-node { box-shadow: var(--shadow-node); }
+.shadow-node-hover { box-shadow: var(--shadow-node-hover); }
+.shadow-node-selected { box-shadow: var(--shadow-node-selected); }
+
+/* ============================================================
+   Phase 6 — Automation port (handle) system
+   14px visible dot, 28px invisible hit area, glow ring on hover
+   ============================================================ */
+.port-hit {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: crosshair;
+  border-radius: 999px;
+}
+.port-hit:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.port-dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid var(--border);
+  background: var(--background);
+  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease, background-color 150ms ease;
+  pointer-events: none;
+}
+.port-dot--in { border-color: color-mix(in oklch, var(--muted-foreground) 50%, transparent); }
+.port-dot--out { border-color: var(--primary); }
+.port-hit:hover .port-dot {
+  transform: scale(1.3);
+  border-color: var(--primary);
+  background: var(--background);
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--primary) 15%, transparent);
+}
+/* Active connection source — pulsing output port */
+.port-dot--source-active {
+  animation: port-pulse 1.4s ease-in-out infinite;
+}
+@keyframes port-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 35%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in oklch, var(--primary) 10%, transparent); }
+}
+/* Valid drop target during pending connection — input port glows */
+.port-dot--target {
+  border-color: var(--primary);
+  transform: scale(1.15);
+  box-shadow: 0 0 0 6px color-mix(in oklch, var(--primary) 20%, transparent);
+}
+
+/* ============================================================
+   Phase 6 — Pending connection preview line
+   Subtle dash-offset drift while dragging a new connection
+   ============================================================ */
+@keyframes connection-dash {
+  to { stroke-dashoffset: -20; }
+}
+.pending-conn-line {
+  animation: connection-dash 0.9s linear infinite;
+}
+
+/* ============================================================
+   Phase 6 — Smooth viewport transitions
+   Applied to the transformed canvas layer for programmatic
+   viewport changes (zoom in/out, fit, jump, double-click).
+   Drag/pan set state directly so the transition is disabled.
+   ============================================================ */
+.viewport-smooth {
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ============================================================
+   Phase 6 — Respect prefers-reduced-motion
+   Disables the premium animations for users who request it.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .pending-conn-line { animation: none !important; }
+  .port-dot--source-active { animation: none !important; }
+}
+

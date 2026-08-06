@@ -153,10 +153,6 @@ import {
   LayoutDashboard,
   Database,
   BrainCircuit,
-  Github,
-  Chrome,
-  MessageCircle,
-  MessagesSquare,
   Settings as SettingsIcon,
 } from 'lucide-react'
 
@@ -1849,11 +1845,6 @@ const INTEGRATION_META: Record<string, { icon: React.ComponentType<{ size?: numb
   supabase: { icon: Database, description: 'Postgres database, authentication, storage, realtime, and edge functions. The primary backend for Venom CRM.' },
   openai: { icon: Sparkles, description: 'AI-assisted email drafting, lead scoring, and natural language search powered by GPT models.' },
   anthropic: { icon: BrainCircuit, description: 'Claude-powered summarization of notes, calls, and meetings. Conversational AI assistant.' },
-  github: { icon: Github, description: 'Sign in with GitHub, sync issues to tasks, and link pull requests to deals.' },
-  google: { icon: Chrome, description: 'Sign in with Google, sync Gmail and Google Calendar with leads and tasks.' },
-  gmail: { icon: Mail, description: 'Sync emails with leads and contacts automatically. Two-way thread linking.' },
-  discord: { icon: MessageCircle, description: 'Send deal alerts and automation notifications to Discord channels.' },
-  slack: { icon: MessagesSquare, description: 'Send deal alerts and mention notifications to Slack channels.' },
 }
 
 function IntegrationsSection() {
@@ -1873,19 +1864,14 @@ function IntegrationsSection() {
             <Check size={10} className="mr-1" /> {summary.connected} Connected
           </Badge>
           <Badge variant="secondary" className="bg-muted text-muted-foreground">
-            {summary.total - summary.connected - summary.future} Not Connected
+            {summary.total - summary.connected} Not Connected
           </Badge>
-          {summary.future > 0 && (
-            <Badge variant="secondary" className="bg-amber-500/15 text-amber-600 dark:text-amber-300">
-              {summary.future} Planned
-            </Badge>
-          )}
         </div>
       )}
 
       {isLoading && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {Array.from({ length: 6 }).map((_, i) => (
+          {Array.from({ length: 3 }).map((_, i) => (
             <PremiumCard key={i} className="p-4 flex flex-col">
               <Skeleton className="h-10 w-10 rounded-lg mb-3" />
               <Skeleton className="h-4 w-24 mb-2" />
@@ -1933,13 +1919,10 @@ function IntegrationsSection() {
                   )}>
                     <Icon size={18} />
                   </div>
-                  <ConnectionBadge connected={int.connected} future={int.future} />
+                  <ConnectionBadge connected={int.connected} />
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-[13px] font-semibold">{int.name}</span>
-                  {int.future && (
-                    <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-300 uppercase font-semibold tracking-wide">Planned</span>
-                  )}
                 </div>
                 <p className="text-[11.5px] text-muted-foreground mt-1 leading-relaxed flex-1">
                   {meta?.description || 'Integration'}
@@ -1962,9 +1945,7 @@ function IntegrationsSection() {
                   size="sm"
                   variant={int.connected ? 'outline' : 'default'}
                   className="mt-3 w-full"
-                  disabled={int.future}
                   onClick={() => {
-                    if (int.future) return
                     if (int.connected) {
                       toast.info(`${int.name} is configured via server environment variables. Update your .env file to disconnect.`)
                     } else {
@@ -1972,9 +1953,7 @@ function IntegrationsSection() {
                     }
                   }}
                 >
-                  {int.future ? (
-                    <>Coming Soon</>
-                  ) : int.connected ? (
+                  {int.connected ? (
                     <><Check size={12} /> Connected</>
                   ) : (
                     <><SettingsIcon size={12} /> Configure</>
@@ -1989,14 +1968,7 @@ function IntegrationsSection() {
   )
 }
 
-function ConnectionBadge({ connected, future }: { connected: boolean; future?: boolean }) {
-  if (future) {
-    return (
-      <Badge variant="secondary" className="bg-amber-500/15 text-amber-600 dark:text-amber-300 text-[10px]">
-        Planned
-      </Badge>
-    )
-  }
+function ConnectionBadge({ connected }: { connected: boolean }) {
   if (connected) {
     return (
       <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 text-[10px]">

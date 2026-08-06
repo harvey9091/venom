@@ -1367,3 +1367,86 @@ Final: **0 errors, 1 warning** ✅ (`bunx eslint src/components/crm/views/tasks.
 - **`flushVertical` and `flushHorizontal` are for canvas / full-bleed pages only** (currently only `automations.tsx`). Regular content pages should keep the default padding so their content aligns with the rest of the app.
 - **The `className` prop on `AppContentContainer` is for positioning context** (e.g. `relative` for absolutely-positioned children), not for padding or width — those come from the preset.
 - **Adding a new view**: pick a preset (most likely `standard` or `wide`), wrap the outer return in `<AppContentContainer preset="…">`, never add hardcoded padding. Look at `tasks.tsx` or `deals.tsx` as the canonical example.
+
+---
+
+## Task ID: venom-phase6-automation — Polish the Venom CRM Automation Builder into a premium workflow editor
+
+**Agent:** full-stack-developer
+**Task:** Phase 6 premium polish of the no-code automation builder
+**Date:** 2025
+
+### Work Log
+
+1. Read the required context:
+   - `/home/z/my-project/worklog.md` (prior history)
+   - `/home/z/my-project/src/components/crm/views/automations.tsx` (~2228 lines — full file)
+   - `/home/z/my-project/src/app/globals.css` (theme blocks)
+   - `/home/z/my-project/dev.log` (compile status — `✓ Compiled` confirmed, no errors)
+   - Confirmed `framer-motion ^12`, `lucide-react ^0.525`, shadcn primitives all available
+
+2. **CSS groundwork** — `src/app/globals.css`:
+   - Added `--connection-color` to every theme block (`:root`, `.dark`, `claude-dark`, `claude-light`, `frosted`, `silver`, `graphite`, `midnight`, `pure-white`) — warm neutral / warm gray / soft cyan / silver / light gray / blue / gray per the spec.
+   - Added the Phase 6 shadow token system to `@layer base :root`: `--shadow-xs/sm/md/node/node-hover/node-selected`. `--shadow-node-selected` uses `var(--primary)` so it tracks theme.
+   - Added utility classes `.shadow-node`, `.shadow-node-hover`, `.shadow-node-selected`.
+   - Added the premium port system: `.port-hit` (28px invisible hit area), `.port-dot` (14px visible dot), `.port-dot--in/--out` (input vs output colors), `:hover` glow ring `0 0 0 4px color-mix(in oklch, var(--primary) 15%, transparent)` + `scale(1.3)`.
+   - Added `.port-dot--source-active` (pulsing source port during pending connection) and `.port-dot--target` (highlighted input port when hovered as a connection target).
+   - Added `@keyframes connection-dash` + `.pending-conn-line` for the dashed-line drift animation while dragging a new connection.
+   - Added `.viewport-smooth` (cubic-bezier transform transition) for programmatic viewport changes.
+   - Added `@media (prefers-reduced-motion: reduce)` block that neutralises all animations/transitions globally and the port-pulse + connection-dash specifically.
+
+3. **EdgePath redesign** (`automations.tsx` ~line 589):
+   - Replaced the static `<path>` with a `motion.path` that animates `pathLength: 0 → 1` (300ms, `[0.22, 1, 0.36, 1]` ease) on mount and `pathLength: 1 → 0` + `opacity: 1 → 0` on exit.
+   - Stroke is now theme-aware: `var(--connection-color)` for unselected, `var(--primary)` for selected (replaced the broken `hsl(var(--primary))` which is invalid against oklch values).
+   - Added two SVG markers in `<defs>`: `arrowhead-default` (uses `var(--connection-color)`) and `arrowhead-selected` (uses `var(--primary)`). Each edge picks the matching marker so the arrowhead matches the line color in both states.
+   - Fixed the label rect: `fill="var(--popover)"`, `stroke="color-mix(in oklch, var(--destructive|var(--primary) 45%, transparent)"`, `fill="var(--foreground)"` for text. Rounded the rect (`rx={9}`) for a pill look.
+   - Added `strokeLinecap="round"` and a CSS `transition: stroke 150ms ease, stroke-width 150ms ease` for smooth selection color changes.
+   - Wrapped the edges in `<AnimatePresence>` so deleted edges play their exit pathLength animation.
+
+4. **NodeCard redesign** (`automations.tsx` ~line 666):
+   - Restructured so the visible card is a child `div` (with `overflow-hidden` OR the condition hexagon `clipPath`) and the ports + hover toolbar are SIBLINGS of that card — they are never clipped, even for condition nodes.
+   - Added `motion.div` wrapper with `initial={{ opacity: 0, scale: 0.8 }}`, `animate={{ opacity: 1, scale: 1 }}`, `exit={{ opacity: 0, scale: 0.8 }}`, `whileHover={{ scale: 1.01 }}`, `transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}`.
+   - Card body uses `bg-gradient-to-b from-card to-card/95` for subtle depth + a `before`-style 1px top highlight (`absolute inset-x-0 top-0 h-px bg-white/10`).
+   - Shadows: `.shadow-node` (resting) → `.shadow-node-hover` (hover) → `.shadow-node-selected` (selected). Replaced the old heavy `ring-2 ring-primary ring-offset-2 ring-offset-background` with `border-primary shadow-node-selected ring-1 ring-primary/30`.
+   - Position transitions: `transition: left 0.3s cubic-bezier(0.22, 1, 0.36, 1), top 0.3s ...` is enabled UNLESS `isDragging` — that way auto-layout glides but drag stays 1:1 with the cursor.
+   - z-index raises on hover (12) and selection (15) so the active card always wins stacking.
+   - Port redesign: each port is a 28px `.port-hit` button (`role="button"`, `aria-label`, keyboard-focusable with `:focus-visible` ring) wrapping a 14px `.port-dot`. Positioned so the dot center sits exactly on the card edge (half outside, half inside). On hover the dot scales 1.3 + glows. The active source port pulses via `.port-dot--source-active`, and a hovered target input port glows via `.port-dot--target`.
+   - New props: `isConnectionTarget`, `isDragging`, `onHover(id|null)`.
+   - Wrapped the node layer in `<AnimatePresence>` so deletes animate out.
+
+5. **ZoomControls redesign** (`automations.tsx` ~line 950):
+   - Added a divider + two new buttons next to the existing zoom controls: **Fit workflow** (`Scan` icon → `onFit`) and **Auto-layout** (`LayoutGrid` icon → `onAutoLayout`). Both have `aria-label` and `title`.
+   - Added `aria-label`s to the existing zoom buttons for accessibility.
+
+6. **AutomationEditor canvas UX** (`automations.tsx` ~line 1591):
+   - **State added**: `isSpacePan`, `hoveredNodeId`, `draggingNodeId`, `smoothPanning`, `smoothTimer` ref.
+   - **Spacebar pan mode**: new `useEffect` listens for `keydown`/`keyup` on Space. While held, `isSpacePan=true`, the canvas cursor becomes `cursor-grab`, and `onCanvasMouseDown` no longer clears the selection — the user can pan without losing context. Ignores Space when the target is an input/textarea/contenteditable or inside a button/switch/anchor. A small "Pan mode — drag to move" hint pill appears top-left while held.
+   - **Ctrl+wheel zoom + plain wheel pan**: `onWheel` now branches on `e.ctrlKey`. Ctrl+wheel (also fired by trackpad pinch) zooms toward the cursor (existing logic). Plain wheel/two-finger scroll pans by `deltaX`/`deltaY`. Both call `e.preventDefault()`.
+   - **Double-click to center**: new `onCanvasDoubleClick` computes the canvas coords of the click and recenters the viewport so that point sits in the middle, using `smoothSetViewport` for a glide.
+   - **Smooth viewport**: new `smoothSetViewport(next)` and `smoothSetViewportFn(updater)` helpers. They set `smoothPanning=true`, call `setViewport`, and clear it after 340ms via a ref timer. The transformed viewport div conditionally gets the `viewport-smooth` class which applies `transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)`. Drag/pan call `setViewport` directly so they stay 1:1.
+   - `zoomIn`, `zoomOut`, `zoomReset`, `jumpTo` all now route through the smooth helpers.
+   - **Fit workflow**: computes the bounding box of all nodes (using per-node `nodeSize` so condition hexagons count correctly), pads 96px, picks the smaller of the x/y zoom ratios (clamped to MIN/MAX_ZOOM), and centers the bbox in the canvas.
+   - **Auto-layout**: BFS topological sort over the graph (triggers at level 0, then conditions/actions follow edges). Cycles / isolated nodes fall back to type-order (trigger→condition→action). Each level becomes a column at `x = 80 + lvl * 280`; nodes within a column are spaced `140px` vertically and centered around y=200. Commits the new positions (the per-node `transition: left/top 0.3s` makes them glide), then `setTimeout(fitWorkflow, 60)` to re-fit once the layout has settled.
+   - `onNodeHeaderMouseDown` now sets `draggingNodeId` (so that node's position transition is disabled during the drag); `onUp` clears it.
+   - The pending connection preview line now uses `stroke="var(--primary)"`, `strokeLinecap="round"`, and the `.pending-conn-line` class so the dash drifts.
+   - Wrapped the node list and the edges list in `<AnimatePresence>` for create/delete animations.
+
+7. **Lint + compile verification**:
+   - `bunx eslint src/components/crm/views/automations.tsx src/app/globals.css` → **0 errors, 0 warnings** (the CSS "no matching configuration" notice is expected — ESLint doesn't lint .css by default).
+   - `dev.log` shows repeated `✓ Compiled in …ms` with no errors after every edit.
+   - `curl http://localhost:3000/` returns **HTTP 200** with the automations chunk (`automations_tsx_…js`) listed in the HTML.
+
+### Files modified
+
+- `src/app/globals.css` — added `--connection-color` to 9 theme blocks + the Phase 6 shadow system in `@layer base`, plus `.shadow-node*`, `.port-hit`, `.port-dot*`, `.pending-conn-line`, `.viewport-smooth`, `prefers-reduced-motion`.
+- `src/components/crm/views/automations.tsx` — EdgePath + NodeCard redesign, ZoomControls Fit/Auto-layout buttons, AutomationEditor canvas UX (spacebar pan, ctrl+wheel zoom + plain wheel pan, double-click center, smooth viewport, fit, auto-layout, draggingNodeId, hoveredNodeId, AnimatePresence for nodes & edges), dual arrowhead markers, animated pending connection line.
+
+### Constraints respected
+
+- Edit/MultiEdit only — no full rewrites.
+- All existing functionality preserved (save, run, undo/redo, palette, inspector, run log, templates, mini-map, node drag, port-connect).
+- Uses existing `useAutomations` / `useAutomationMutations` hooks — no new data layer.
+- Framer Motion for every animation (motion.div, motion.path, AnimatePresence, whileHover, exit, pathLength).
+- `prefers-reduced-motion` neutralises every animation globally and the port-pulse + connection-dash specifically.
+- Theme CSS variables only — no hardcoded colors. The previous broken `hsl(var(--primary))` calls (invalid against oklch values) were replaced with `var(--primary)` / `var(--connection-color)` / `color-mix(in oklch, …)`.
+- Surgical edits on a ~2228-line file — final size 2513 lines.

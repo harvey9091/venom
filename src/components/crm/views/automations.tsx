@@ -50,7 +50,7 @@ import {
   Bell, ListTodo, KanbanSquare, Tag, StickyNote, Activity, Clock,
   Mail, Hourglass, Repeat, Webhook, Filter, Equal, AlignLeft,
   ChevronRight, Circle, Sparkles, PanelBottomOpen, PanelBottomClose,
-  Flame, PartyPopper, Clock3,
+  Flame, PartyPopper, Clock3, LayoutGrid, Scan,
 } from 'lucide-react'
 import type {
   Automation, AutomationNode, AutomationEdge, AutomationGraph,
@@ -613,31 +613,43 @@ function EdgePath({
   const midX = (a.x + b.x) / 2
   const midY = (a.y + b.y) / 2
 
+  const stroke = selected ? 'var(--primary)' : 'var(--connection-color)'
+  const marker = selected ? 'url(#arrowhead-selected)' : 'url(#arrowhead-default)'
+  const labelStroke = edge.label === 'false'
+    ? 'color-mix(in oklch, var(--destructive) 45%, transparent)'
+    : 'color-mix(in oklch, var(--primary) 45%, transparent)'
+
   return (
     <g className="cursor-pointer" onClick={(e) => { e.stopPropagation(); onSelect() }}>
       {/* Wider invisible hit area */}
       <path d={d} fill="none" stroke="transparent" strokeWidth={14} />
-      <path
+      {/* Visible animated bezier — pathLength draws the line in on mount */}
+      <motion.path
         d={d}
         fill="none"
-        stroke={selected ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground) / 0.5)'}
+        stroke={stroke}
         strokeWidth={selected ? 2.5 : 2}
-        markerEnd="url(#arrowhead)"
-        className="transition-all"
+        strokeLinecap="round"
+        markerEnd={marker}
+        initial={{ pathLength: 0, opacity: 0 }}
+        animate={{ pathLength: 1, opacity: 1 }}
+        exit={{ pathLength: 0, opacity: 0 }}
+        transition={{ pathLength: { duration: 0.3, ease: [0.22, 1, 0.36, 1] }, opacity: { duration: 0.15 } }}
+        style={{ transition: 'stroke 150ms ease, stroke-width 150ms ease' }}
       />
       {edge.label && (
-        <g>
+        <g className="pointer-events-none">
           <rect
             x={midX - 22} y={midY - 9}
-            width={44} height={18} rx={4}
-            fill="hsl(var(--popover))"
-            stroke={edge.label === 'false' ? 'hsl(var(--destructive) / 0.4)' : 'hsl(var(--primary) / 0.4)'}
+            width={44} height={18} rx={9}
+            fill="var(--popover)"
+            stroke={labelStroke}
             strokeWidth={1}
           />
           <text
             x={midX} y={midY + 3}
             textAnchor="middle"
-            className="fill-foreground"
+            fill="var(--foreground)"
             style={{ fontSize: 10, fontWeight: 600 }}
           >
             {edge.label}
@@ -656,16 +668,19 @@ interface NodeCardProps {
   node: AutomationNode
   selected: boolean
   pendingConnSource: boolean
+  isConnectionTarget: boolean
+  isDragging: boolean
   onHeaderMouseDown: (e: React.MouseEvent) => void
   onPortClick: (port: PortName, kind: 'in' | 'out') => void
   onSelect: () => void
   onDelete: () => void
   onDuplicate: () => void
+  onHover: (id: string | null) => void
 }
 
 function NodeCard({
-  node, selected, pendingConnSource,
-  onHeaderMouseDown, onPortClick, onSelect, onDelete, onDuplicate,
+  node, selected, pendingConnSource, isConnectionTarget, isDragging,
+  onHeaderMouseDown, onPortClick, onSelect, onDelete, onDuplicate, onHover,
 }: NodeCardProps) {
   const { w, h } = nodeSize(node)
   const ports = portsFor(node)
@@ -700,11 +715,13 @@ function NodeCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
+      initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.18 }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      exit={{ opacity: 0, scale: 0.8 }}
+      whileHover={{ scale: 1.01 }}
+      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+      onMouseEnter={() => { setHover(true); onHover(node.id) }}
+      onMouseLeave={() => { setHover(false); onHover(null) }}
       onMouseDown={(e) => { e.stopPropagation(); onSelect() }}
       style={{
         position: 'absolute',
@@ -712,43 +729,65 @@ function NodeCard({
         top: node.position.y,
         width: w,
         height: h,
-        ...(isCondition
-          ? { clipPath: 'polygon(12% 0, 88% 0, 100% 50%, 88% 100%, 12% 100%, 0 50%)' }
-          : {}),
+        // Smoothly animate position changes (auto-layout). Disabled while
+        // this specific node is being dragged so it tracks the cursor 1:1.
+        transition: isDragging
+          ? 'none'
+          : 'left 0.3s cubic-bezier(0.22, 1, 0.36, 1), top 0.3s cubic-bezier(0.22, 1, 0.36, 1)',
+        zIndex: selected ? 15 : hover ? 12 : 10,
       }}
-      className={cn(
-        'card-premium bg-card shadow-soft border-2 rounded-xl flex flex-col overflow-hidden',
-        borderColor,
-        selected && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
-      )}
     >
-      {/* Header (drag handle) */}
+      {/* ===================================================
+          Visible card content (clipped by overflow-hidden OR
+          the condition hexagon clipPath). Ports + hover toolbar
+          live OUTSIDE this element so they are never clipped.
+         =================================================== */}
       <div
-        onMouseDown={onHeaderMouseDown}
         className={cn(
-          'flex items-center gap-2 px-3 py-2 cursor-grab active:cursor-grabbing select-none',
-          headerBg,
-          isCondition && 'pl-8 pr-8',
+          'card-premium relative w-full h-full bg-gradient-to-b from-card to-card/95 border-2 rounded-xl flex flex-col overflow-hidden',
+          selected ? 'border-primary shadow-node-selected ring-1 ring-primary/30' : cn(borderColor, hover ? 'shadow-node-hover' : 'shadow-node'),
         )}
-        style={{ height: 36 }}
+        style={isCondition ? { clipPath: 'polygon(12% 0, 88% 0, 100% 50%, 88% 100%, 12% 100%, 0 50%)' } : {}}
       >
-        {renderNodeIcon(node, 13)}
-        <span className="text-[11px] font-semibold tracking-tight uppercase truncate flex-1">
-          {titleText}
-        </span>
+        {/* 1px top highlight for subtle depth */}
+        <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/10" />
+
+        {/* Header (drag handle) */}
+        <div
+          onMouseDown={onHeaderMouseDown}
+          className={cn(
+            'flex items-center gap-2 px-3 py-2 cursor-grab active:cursor-grabbing select-none',
+            headerBg,
+            isCondition && 'pl-8 pr-8',
+          )}
+          style={{ height: 36 }}
+        >
+          {renderNodeIcon(node, 13)}
+          <span className="text-[11px] font-semibold tracking-tight uppercase truncate flex-1">
+            {titleText}
+          </span>
+        </div>
+
+        {/* Body */}
+        <div className={cn(
+          'flex-1 px-3 py-2 flex items-center min-w-0',
+          isCondition && 'pl-8 pr-8',
+        )}>
+          <span className="text-[12px] text-foreground/80 truncate block">
+            {bodyText}
+          </span>
+        </div>
+
+        {/* Port labels for condition (kept inside, near the ports) */}
+        {isCondition && (
+          <>
+            <span className="absolute right-1 top-[22%] text-[8px] font-bold uppercase text-emerald-600 pointer-events-none">T</span>
+            <span className="absolute right-1 bottom-[22%] text-[8px] font-bold uppercase text-rose-500 pointer-events-none">F</span>
+          </>
+        )}
       </div>
 
-      {/* Body */}
-      <div className={cn(
-        'flex-1 px-3 py-2 flex items-center min-w-0',
-        isCondition && 'pl-8 pr-8',
-      )}>
-        <span className="text-[12px] text-foreground/80 truncate block">
-          {bodyText}
-        </span>
-      </div>
-
-      {/* Hover toolbar */}
+      {/* Hover toolbar — outside the clipped card so it can float above */}
       <AnimatePresence>
         {hover && (
           <motion.div
@@ -756,7 +795,7 @@ function NodeCard({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute -top-3 right-2 flex items-center gap-0.5 rounded-md border border-border/60 bg-popover shadow-soft p-0.5"
+            className="absolute -top-3 right-2 flex items-center gap-0.5 rounded-md border border-border/60 bg-popover shadow-soft p-0.5 z-30"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <button
@@ -777,33 +816,37 @@ function NodeCard({
         )}
       </AnimatePresence>
 
-      {/* Ports */}
+      {/* ===================================================
+          Ports — rendered as siblings of the card content so
+          they are never clipped by overflow-hidden / clipPath.
+          Each port is a 28px hit area wrapping a 14px visible
+          dot, positioned so half the dot extends outside the
+          card edge for an accessible, premium handle.
+         =================================================== */}
       {ports.map((p) => (
         <button
           key={p.name}
+          type="button"
+          role="button"
+          aria-label={`${p.kind === 'in' ? 'Input' : 'Output'} port`}
           onMouseDown={(e) => { e.stopPropagation(); onPortClick(p.name, p.kind) }}
           title={`${p.kind === 'in' ? 'Input' : 'Output'} port`}
-          className={cn(
-            'absolute size-3 rounded-full border-2 bg-background z-10 transition-all hover:scale-125',
-            p.kind === 'in'
-              ? 'border-foreground/50 hover:border-primary'
-              : 'border-primary hover:border-primary',
-            pendingConnSource && p.kind === 'out' && 'animate-pulse ring-2 ring-primary/40',
-          )}
+          className="port-hit z-20"
           style={{
-            left: p.x - node.position.x - 6,
-            top: p.y - node.position.y - 6,
+            left: p.x - node.position.x - 14,
+            top: p.y - node.position.y - 14,
           }}
-        />
+        >
+          <span
+            className={cn(
+              'port-dot',
+              p.kind === 'in' ? 'port-dot--in' : 'port-dot--out',
+              pendingConnSource && p.kind === 'out' && 'port-dot--source-active',
+              isConnectionTarget && p.kind === 'in' && 'port-dot--target',
+            )}
+          />
+        </button>
       ))}
-
-      {/* Port labels for condition */}
-      {isCondition && (
-        <>
-          <span className="absolute right-1 top-[22%] text-[8px] font-bold uppercase text-emerald-600 pointer-events-none">T</span>
-          <span className="absolute right-1 bottom-[22%] text-[8px] font-bold uppercase text-rose-500 pointer-events-none">F</span>
-        </>
-      )}
     </motion.div>
   )
 }
@@ -905,12 +948,14 @@ function MiniMap({
 // ============================================================
 
 function ZoomControls({
-  zoom, onZoomIn, onZoomOut, onReset,
+  zoom, onZoomIn, onZoomOut, onReset, onFit, onAutoLayout,
 }: {
   zoom: number
   onZoomIn: () => void
   onZoomOut: () => void
   onReset: () => void
+  onFit: () => void
+  onAutoLayout: () => void
 }) {
   return (
     <div className="absolute bottom-3 left-3 flex items-center gap-1 rounded-lg border border-border/60 bg-popover/90 backdrop-blur shadow-soft p-1">
@@ -918,6 +963,7 @@ function ZoomControls({
         onClick={onZoomOut}
         className="size-7 grid place-items-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
         title="Zoom out"
+        aria-label="Zoom out"
       >
         <ZoomOut size={14} />
       </button>
@@ -932,16 +978,34 @@ function ZoomControls({
         onClick={onZoomIn}
         className="size-7 grid place-items-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
         title="Zoom in"
+        aria-label="Zoom in"
       >
         <ZoomIn size={14} />
       </button>
       <div className="w-px h-5 bg-border/60 mx-0.5" />
       <button
+        onClick={onFit}
+        className="size-7 grid place-items-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+        title="Fit workflow to view"
+        aria-label="Fit workflow to view"
+      >
+        <Scan size={13} />
+      </button>
+      <button
         onClick={onReset}
         className="size-7 grid place-items-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-        title="Reset view"
+        title="Reset view (100%)"
+        aria-label="Reset view"
       >
         <Maximize2 size={13} />
+      </button>
+      <button
+        onClick={onAutoLayout}
+        className="size-7 grid place-items-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+        title="Auto-layout nodes"
+        aria-label="Auto-layout nodes"
+      >
+        <LayoutGrid size={13} />
       </button>
     </div>
   )
@@ -1544,6 +1608,13 @@ function AutomationEditor({
   const canvasRef = React.useRef<HTMLDivElement>(null)
   const [canvasSize, setCanvasSize] = React.useState({ w: 800, h: 600 })
 
+  // Phase 6 — premium canvas UX state
+  const [isSpacePan, setIsSpacePan] = React.useState(false)         // Spacebar held → click-drag pans
+  const [hoveredNodeId, setHoveredNodeId] = React.useState<string | null>(null)  // For connection-target highlight
+  const [draggingNodeId, setDraggingNodeId] = React.useState<string | null>(null) // Disables position transition during drag
+  const [smoothPanning, setSmoothPanning] = React.useState(false)   // Enables CSS transition on viewport transform
+  const smoothTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Thinking-orb state — visual-only indicators on the Save + Run now buttons.
   const [isSaving, setIsSaving] = React.useState(false)
   const [isRunning, setIsRunning] = React.useState(false)
@@ -1618,6 +1689,7 @@ function AutomationEditor({
       if (d?.kind === 'node') {
         // commit the live-updated graph
         history.commit(stateRef.current.graph)
+        setDraggingNodeId(null)
       }
       dragRef.current = null
       document.body.style.cursor = ''
@@ -1641,11 +1713,14 @@ function AutomationEditor({
 
   // ----- Handlers -----
   function onCanvasMouseDown(e: React.MouseEvent) {
-    // Background click clears selection / pending
+    // Background click clears selection / pending — UNLESS the user is
+    // holding Space (pan-only mode) so they can pan without losing context.
     if (e.target === e.currentTarget || (e.target as HTMLElement).dataset.bg === '1') {
-      setSelection(null)
-      setPendingConn(null)
-      // Start panning
+      if (!isSpacePan) {
+        setSelection(null)
+        setPendingConn(null)
+      }
+      // Always start panning on background drag
       dragRef.current = {
         kind: 'pan',
         startX: e.clientX,
@@ -1653,7 +1728,7 @@ function AutomationEditor({
         origX: viewport.x,
         origY: viewport.y,
       }
-      document.body.style.cursor = 'grabbing'
+      document.body.style.cursor = isSpacePan ? 'grabbing' : 'grabbing'
     }
   }
 
@@ -1677,29 +1752,54 @@ function AutomationEditor({
     e.stopPropagation()
   }
 
+  // Double-click centers the clicked point in the viewport (smooth).
+  function onCanvasDoubleClick(e: React.MouseEvent) {
+    if (pendingPalette) return
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const cx = (e.clientX - rect.left - viewport.x) / viewport.zoom
+    const cy = (e.clientY - rect.top - viewport.y) / viewport.zoom
+    smoothSetViewport({
+      zoom: viewport.zoom,
+      x: rect.width / 2 - cx * viewport.zoom,
+      y: rect.height / 2 - cy * viewport.zoom,
+    })
+  }
+
   function onWheel(e: React.WheelEvent) {
     if (!canvasRef.current) return
     e.preventDefault()
-    const rect = canvasRef.current.getBoundingClientRect()
-    const mx = e.clientX - rect.left
-    const my = e.clientY - rect.top
-    const delta = -e.deltaY * 0.0015
-    setViewport((v) => {
-      const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v.zoom * (1 + delta)))
-      const ratio = newZoom / v.zoom
-      // zoom toward cursor
-      return {
-        zoom: newZoom,
-        x: mx - (mx - v.x) * ratio,
-        y: my - (my - v.y) * ratio,
-      }
-    })
+    // Ctrl+wheel (or pinch on a trackpad) → zoom toward the cursor
+    if (e.ctrlKey) {
+      const rect = canvasRef.current.getBoundingClientRect()
+      const mx = e.clientX - rect.left
+      const my = e.clientY - rect.top
+      const delta = -e.deltaY * 0.0015
+      setViewport((v) => {
+        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v.zoom * (1 + delta)))
+        const ratio = newZoom / v.zoom
+        // zoom toward cursor
+        return {
+          zoom: newZoom,
+          x: mx - (mx - v.x) * ratio,
+          y: my - (my - v.y) * ratio,
+        }
+      })
+    } else {
+      // Plain wheel (or two-finger trackpad scroll) → pan
+      setViewport((v) => ({
+        ...v,
+        x: v.x - e.deltaX,
+        y: v.y - e.deltaY,
+      }))
+    }
   }
 
   function onNodeHeaderMouseDown(node: AutomationNode) {
     return (e: React.MouseEvent) => {
       e.stopPropagation()
       setSelection({ type: 'node', id: node.id })
+      setDraggingNodeId(node.id)
       dragRef.current = {
         kind: 'node',
         nodeId: node.id,
@@ -1822,22 +1922,152 @@ function AutomationEditor({
     }
   }
 
+  // ----- Smooth viewport helper -----
+  // Wraps setViewport with a brief CSS-transition window so programmatic
+  // changes (zoom buttons, fit, jump, double-click) glide instead of jump.
+  // Drag/pan call setViewport directly so they stay 1:1 with the cursor.
+  function smoothSetViewport(next: { x: number; y: number; zoom: number }) {
+    setSmoothPanning(true)
+    setViewport(next)
+    if (smoothTimer.current) clearTimeout(smoothTimer.current)
+    smoothTimer.current = setTimeout(() => setSmoothPanning(false), 340)
+  }
+  function smoothSetViewportFn(updater: (v: { x: number; y: number; zoom: number }) => { x: number; y: number; zoom: number }) {
+    setSmoothPanning(true)
+    setViewport(updater)
+    if (smoothTimer.current) clearTimeout(smoothTimer.current)
+    smoothTimer.current = setTimeout(() => setSmoothPanning(false), 340)
+  }
+
   function zoomIn() {
-    setViewport((v) => ({ ...v, zoom: Math.min(MAX_ZOOM, v.zoom * 1.2) }))
+    smoothSetViewportFn((v) => ({ ...v, zoom: Math.min(MAX_ZOOM, v.zoom * 1.2) }))
   }
   function zoomOut() {
-    setViewport((v) => ({ ...v, zoom: Math.max(MIN_ZOOM, v.zoom / 1.2) }))
+    smoothSetViewportFn((v) => ({ ...v, zoom: Math.max(MIN_ZOOM, v.zoom / 1.2) }))
   }
   function zoomReset() {
-    setViewport({ x: 40, y: 30, zoom: 1 })
+    smoothSetViewport({ x: 40, y: 30, zoom: 1 })
   }
 
   function jumpTo(vx: number, vy: number) {
-    setViewport((v) => ({
-      ...v,
+    smoothSetViewport({
       x: Math.max(-CANVAS_W, Math.min(CANVAS_W, vx)),
       y: Math.max(-CANVAS_H, Math.min(CANVAS_H, vy)),
-    }))
+      zoom: viewport.zoom,
+    })
+  }
+
+  // Fit all nodes in the viewport with comfortable padding.
+  function fitWorkflow() {
+    const nodes = history.graph.nodes
+    if (nodes.length === 0) {
+      smoothSetViewport({ x: 40, y: 30, zoom: 1 })
+      return
+    }
+    const xs = nodes.map((n) => n.position.x)
+    const ys = nodes.map((n) => n.position.y)
+    const minX = Math.min(...xs)
+    const minY = Math.min(...ys)
+    const maxX = Math.max(...xs.map((x, i) => x + nodeSize(nodes[i]).w))
+    const maxY = Math.max(...ys.map((y, i) => y + nodeSize(nodes[i]).h))
+    const bw = Math.max(maxX - minX, 1)
+    const bh = Math.max(maxY - minY, 1)
+    const cw = canvasRef.current?.clientWidth || 800
+    const ch = canvasRef.current?.clientHeight || 600
+    const padding = 96
+    const zoomX = (cw - padding * 2) / bw
+    const zoomY = (ch - padding * 2) / bh
+    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(zoomX, zoomY)))
+    const cx = (minX + maxX) / 2
+    const cy = (minY + maxY) / 2
+    smoothSetViewport({
+      zoom: newZoom,
+      x: cw / 2 - cx * newZoom,
+      y: ch / 2 - cy * newZoom,
+    })
+  }
+
+  // Topological auto-layout: column per BFS level, vertically centered.
+  function autoLayout() {
+    const { nodes, edges } = history.graph
+    if (nodes.length === 0) return
+
+    const typeOrder: Record<NodeType, number> = { trigger: 0, condition: 1, action: 2 }
+
+    // Build adjacency + incoming counts
+    const incoming = new Map<string, number>()
+    const outgoing = new Map<string, string[]>()
+    nodes.forEach((n) => {
+      incoming.set(n.id, 0)
+      outgoing.set(n.id, [])
+    })
+    edges.forEach((e) => {
+      incoming.set(e.target, (incoming.get(e.target) || 0) + 1)
+      outgoing.get(e.source)?.push(e.target)
+    })
+
+    // BFS topological levels — distance from a root node
+    const level = new Map<string, number>()
+    const queue: string[] = []
+    nodes.forEach((n) => {
+      if ((incoming.get(n.id) || 0) === 0) {
+        level.set(n.id, 0)
+        queue.push(n.id)
+      }
+    })
+    while (queue.length > 0) {
+      const id = queue.shift()!
+      const lvl = level.get(id) || 0
+      ;(outgoing.get(id) || []).forEach((tgt) => {
+        const newLvl = Math.max(level.get(tgt) || 0, lvl + 1)
+        level.set(tgt, newLvl)
+        incoming.set(tgt, (incoming.get(tgt) || 0) - 1)
+        if ((incoming.get(tgt) || 0) === 0) queue.push(tgt)
+      })
+    }
+    // Fallback for cycles / isolated nodes — sort by type so triggers come first
+    nodes.forEach((n) => {
+      if (!level.has(n.id)) level.set(n.id, typeOrder[n.type])
+    })
+
+    // Group nodes by level — preserve input order for stable layout
+    const byLevel = new Map<number, string[]>()
+    nodes.forEach((n) => {
+      const lvl = level.get(n.id) || 0
+      if (!byLevel.has(lvl)) byLevel.set(lvl, [])
+      byLevel.get(lvl)!.push(n.id)
+    })
+
+    const COL_W = 280
+    const ROW_H = 140
+
+    // Compute total column count to vertically center the longest column around y=200
+    const maxRows = Math.max(...Array.from(byLevel.values()).map((arr) => arr.length))
+    const totalH = maxRows * ROW_H
+    const centerY = 200
+
+    const newPositions = new Map<string, { x: number; y: number }>()
+    Array.from(byLevel.keys()).sort((a, b) => a - b).forEach((lvl) => {
+      const ids = byLevel.get(lvl)!
+      const colH = ids.length * ROW_H
+      const startY = centerY - colH / 2 + ROW_H / 2
+      ids.forEach((id, i) => {
+        newPositions.set(id, {
+          x: 80 + lvl * COL_W,
+          y: Math.max(40, startY + i * ROW_H),
+        })
+      })
+    })
+
+    history.commit({
+      ...history.graph,
+      nodes: history.graph.nodes.map((n) => ({
+        ...n,
+        position: newPositions.get(n.id) || n.position,
+      })),
+    })
+    // Fit after layout so the user sees the whole reorganized workflow
+    setTimeout(() => fitWorkflow(), 60)
   }
 
   // ----- Keyboard shortcuts (declared AFTER deleteNode/deleteEdge) -----
@@ -1867,6 +2097,31 @@ function AutomationEditor({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [selection, history.graph])
+
+  // ----- Spacebar pan mode -----
+  // Holding Space puts the canvas in "pan mode" — clicking + dragging pans
+  // without clearing the selection. Lets go on keyup.
+  React.useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code !== 'Space' && e.key !== ' ') return
+      const target = e.target as HTMLElement
+      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable) return
+      // Don't trigger when an interactive control is focused (button, switch, etc.)
+      if (target?.closest('button, [role="button"], [role="switch"], a, select')) return
+      e.preventDefault()
+      setIsSpacePan(true)
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.code !== 'Space' && e.key !== ' ') return
+      setIsSpacePan(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [])
 
   const selectedNode = selection?.type === 'node'
     ? history.graph.nodes.find((n) => n.id === selection.id) || null
@@ -1928,16 +2183,17 @@ function AutomationEditor({
             onMouseDown={onCanvasMouseDown}
             onMouseMove={onCanvasMouseMove}
             onClick={onCanvasClick}
+            onDoubleClick={onCanvasDoubleClick}
             onWheel={onWheel}
             className={cn(
               'absolute inset-0 overflow-hidden select-none',
-              pendingPalette ? 'cursor-crosshair' : 'cursor-default',
+              pendingPalette ? 'cursor-crosshair' : isSpacePan ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
             )}
           >
             {/* Transformed viewport */}
             <div
               data-bg="1"
-              className="absolute top-0 left-0"
+              className={cn('absolute top-0 left-0', smoothPanning && 'viewport-smooth')}
               style={{
                 width: CANVAS_W,
                 height: CANVAS_H,
@@ -1953,30 +2209,44 @@ function AutomationEditor({
                 style={{ overflow: 'visible' }}
               >
                 <defs>
+                  {/* Default arrowhead — matches the unselected connection color */}
                   <marker
-                    id="arrowhead"
+                    id="arrowhead-default"
                     markerWidth="8"
                     markerHeight="8"
                     refX="7"
                     refY="4"
                     orient="auto"
                   >
-                    <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="hsl(var(--muted-foreground) / 0.7)" />
+                    <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="var(--connection-color)" />
+                  </marker>
+                  {/* Selected arrowhead — matches the primary color */}
+                  <marker
+                    id="arrowhead-selected"
+                    markerWidth="8"
+                    markerHeight="8"
+                    refX="7"
+                    refY="4"
+                    orient="auto"
+                  >
+                    <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="var(--primary)" />
                   </marker>
                 </defs>
                 {/* Edges */}
                 <g className="pointer-events-auto">
-                  {history.graph.edges.map((edge) => (
-                    <EdgePath
-                      key={edge.id}
-                      edge={edge}
-                      nodes={history.graph.nodes}
-                      selected={selection?.type === 'edge' && selection.id === edge.id}
-                      onSelect={() => setSelection({ type: 'edge', id: edge.id })}
-                    />
-                  ))}
+                  <AnimatePresence>
+                    {history.graph.edges.map((edge) => (
+                      <EdgePath
+                        key={edge.id}
+                        edge={edge}
+                        nodes={history.graph.nodes}
+                        selected={selection?.type === 'edge' && selection.id === edge.id}
+                        onSelect={() => setSelection({ type: 'edge', id: edge.id })}
+                      />
+                    ))}
+                  </AnimatePresence>
                 </g>
-                {/* Pending connection line */}
+                {/* Pending connection preview — animated dashed line */}
                 {pendingConn && pendingCursor && (() => {
                   const srcNode = history.graph.nodes.find((n) => n.id === pendingConn.nodeId)
                   if (!srcNode) return null
@@ -1986,29 +2256,35 @@ function AutomationEditor({
                     <path
                       d={d}
                       fill="none"
-                      stroke="hsl(var(--primary))"
+                      stroke="var(--primary)"
                       strokeWidth={2}
+                      strokeLinecap="round"
                       strokeDasharray="6 4"
-                      className="pointer-events-none"
+                      className="pending-conn-line pointer-events-none"
                     />
                   )
                 })()}
               </svg>
 
-              {/* Node layer */}
-              {history.graph.nodes.map((node) => (
-                <NodeCard
-                  key={node.id}
-                  node={node}
-                  selected={selection?.type === 'node' && selection.id === node.id}
-                  pendingConnSource={pendingConn?.nodeId === node.id}
-                  onHeaderMouseDown={onNodeHeaderMouseDown(node)}
-                  onPortClick={(port, kind) => onPortClick(node, port, kind)()}
-                  onSelect={() => setSelection({ type: 'node', id: node.id })}
-                  onDelete={() => deleteNode(node.id)}
-                  onDuplicate={() => duplicateNode(node.id)}
-                />
-              ))}
+              {/* Node layer — wrapped in AnimatePresence for delete animations */}
+              <AnimatePresence>
+                {history.graph.nodes.map((node) => (
+                  <NodeCard
+                    key={node.id}
+                    node={node}
+                    selected={selection?.type === 'node' && selection.id === node.id}
+                    pendingConnSource={pendingConn?.nodeId === node.id}
+                    isConnectionTarget={!!pendingConn && hoveredNodeId === node.id && pendingConn.nodeId !== node.id}
+                    isDragging={draggingNodeId === node.id}
+                    onHeaderMouseDown={onNodeHeaderMouseDown(node)}
+                    onPortClick={(port, kind) => onPortClick(node, port, kind)()}
+                    onSelect={() => setSelection({ type: 'node', id: node.id })}
+                    onDelete={() => deleteNode(node.id)}
+                    onDuplicate={() => duplicateNode(node.id)}
+                    onHover={setHoveredNodeId}
+                  />
+                ))}
+              </AnimatePresence>
             </div>
 
             {/* Pending palette banner */}
@@ -2033,12 +2309,22 @@ function AutomationEditor({
               </div>
             )}
 
+            {/* Spacebar pan hint */}
+            {isSpacePan && (
+              <div className="absolute top-3 left-3 z-20 px-2.5 py-1 rounded-md bg-popover/95 border border-border/60 shadow-soft text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-emerald-500" />
+                Pan mode — drag to move
+              </div>
+            )}
+
             {/* Zoom controls */}
             <ZoomControls
               zoom={viewport.zoom}
               onZoomIn={zoomIn}
               onZoomOut={zoomOut}
               onReset={zoomReset}
+              onFit={fitWorkflow}
+              onAutoLayout={autoLayout}
             />
 
             {/* Mini-map */}

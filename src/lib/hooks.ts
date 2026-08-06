@@ -796,10 +796,9 @@ export function useGlobalSearch(q: string) {
 export interface IntegrationStatus {
   id: string
   name: string
-  category: 'database' | 'ai' | 'version_control' | 'email' | 'chat' | 'cloud'
+  category: 'database' | 'ai'
   connected: boolean
   details?: Record<string, string | number | boolean | null>
-  future?: boolean
 }
 
 export function useIntegrations() {
@@ -810,10 +809,10 @@ export function useIntegrations() {
       const j = await r.json()
       return j.data as {
         integrations: IntegrationStatus[]
-        summary: { total: number; connected: number; future: number }
+        summary: { total: number; connected: number }
       }
     },
-    staleTime: 60_000, // Cache for 1 minute — env vars don't change often
+    staleTime: 60_000,
   })
 }
 
