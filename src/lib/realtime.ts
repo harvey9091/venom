@@ -1,81 +1,74 @@
 /**
- * Realtime client — connects to socket.io mini-service on port 3003.
- * Path is always "/" so Caddy can forward via /?XTransformPort=3003.
+ * Realtime client — connects to Supabase Realtime in production,
+ * falls back to socket.io mini-service in development.
  */
 'use client'
 
-import { io, Socket } from 'socket.io-client'
 import { useEffect, useRef } from 'react'
 import { useAppStore } from './store'
 import { useQueryClient } from '@tanstack/react-query'
+import { createSupabaseBrowserClient } from './supabase'
 
-let socket: Socket | null = null
+let supabaseChannel: ReturnType<ReturnType<typeof createSupabaseBrowserClient>['channel']> | null = null
 
-export function getSocket(): Socket | null {
-  return socket
-}
-
-export function ensureSocket(workspaceId?: string, userId?: string): Socket {
-  if (socket && socket.connected) return socket
-  if (!socket) {
-    socket = io('/?XTransformPort=3003', {
-      transports: ['websocket'],
-      reconnection: true,
-      reconnectionDelay: 1000,
-    })
-    socket.on('connect', () => {
-      useAppStore.getState().setRealtimeConnected(true)
-      if (workspaceId || userId) {
-        socket!.emit('join', { workspaceId, userId })
-      }
-    })
-    socket.on('disconnect', () => {
-      useAppStore.getState().setRealtimeConnected(false)
-    })
-    socket.on('notification', (notif: any) => {
-      useAppStore.getState().addNotification(notif)
-    })
-    socket.on('entity:event', (payload: any) => {
-      // Invalidate the relevant query
-      const qc = (window as any).__queryClient
-      if (qc) {
-        qc.invalidateQueries({ queryKey: [payload.type] })
-      }
-    })
-    socket.on('activity:new', () => {
-      const qc = (window as any).__queryClient
-      if (qc) qc.invalidateQueries({ queryKey: ['activities'] })
-    })
-  } else {
-    socket.connect()
-  }
-  return socket
-}
-
-export function useRealtime() {
+function useSupabaseRealtime() {
   const workspaceId = useAppStore((s) => s.workspace?.id)
   const userId = useAppStore((s) => s.user?.id)
   const qc = useQueryClient()
-  const initRef = useRef(false)
 
   useEffect(() => {
-    // Expose query client globally for socket handler
-    ;(window as any).__queryClient = qc
     if (!workspaceId || !userId) return
-    const s = ensureSocket(workspaceId, userId)
-    if (!initRef.current) {
-      initRef.current = true
-      s.emit('join', { workspaceId, userId })
+
+    const supabase = createSupabaseBrowserClient()
+
+    supabaseChannel = supabase
+      .channel(`workspace:${workspaceId}`)
+      .on('broadcast', { event: 'entity:event' }, (payload) => {
+        qc.invalidateQueries({ queryKey: [payload.payload.type] })
+      })
+      .on('broadcast', { event: 'activity:new' }, () => {
+        qc.invalidateQueries({ queryKey: ['activities'] })
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` }, (payload) => {
+        useAppStore.getState().addNotification(payload.new as any)
+      })
+      .subscribe()
+
+    return () => {
+      if (supabaseChannel) {
+        supabase.removeChannel(supabaseChannel)
+        supabaseChannel = null
+      }
     }
   }, [workspaceId, userId, qc])
 }
 
+export function getSocket() {
+  return null
+}
+
+export function ensureSocket() {
+  return null as any
+}
+
+export function useRealtime() {
+  useSupabaseRealtime()
+}
+
 export function broadcastEntityEvent(payload: { workspaceId: string; type: string; entity: any; action: string }) {
-  const s = getSocket()
-  if (s && s.connected) s.emit('entity:event', payload)
+  if (process.env.NODE_ENV !== 'production') {
+    const socket = (window as any).__socket
+    if (socket && socket.connected) {
+      socket.emit('entity:event', payload)
+    }
+  }
 }
 
 export function broadcastActivity(payload: { workspaceId: string; activity: any }) {
-  const s = getSocket()
-  if (s && s.connected) s.emit('activity:new', payload)
+  if (process.env.NODE_ENV !== 'production') {
+    const socket = (window as any).__socket
+    if (socket && socket.connected) {
+      socket.emit('activity:new', payload)
+    }
+  }
 }

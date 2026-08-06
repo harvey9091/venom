@@ -359,7 +359,7 @@ async function main() {
   }
 
   // --- Automations ---
-  const sampleGraph = JSON.stringify({
+  const sampleGraph = {
     nodes: [
       { id: 't1', type: 'trigger', data: { triggerType: 'lead_created' }, position: { x: 40, y: 120 } },
       { id: 'c1', type: 'condition', data: { field: 'score', op: 'greater_than', value: 70 }, position: { x: 320, y: 120 } },
@@ -373,7 +373,7 @@ async function main() {
       { id: 'e3', source: 'c1', target: 'a2', label: 'true' },
       { id: 'e4', source: 'a1', target: 'a3' },
     ],
-  })
+  }
   await db.automation.createMany({
     data: [
       { workspaceId: ws.id, name: 'Hot lead routing', description: 'Auto-assign high-score leads to Noah', enabled: true, triggerType: 'lead_created', graph: sampleGraph, runsCount: 142, lastRunAt: daysAgo(1) },
@@ -387,9 +387,9 @@ async function main() {
   await db.customField.createMany({
     data: [
       { workspaceId: ws.id, entityType: 'lead', name: 'Budget', key: 'budget', type: 'number' },
-      { workspaceId: ws.id, entityType: 'lead', name: 'Decision Timeline', key: 'decision_timeline', type: 'select', options: JSON.stringify(['< 1 month', '1-3 months', '3-6 months', '6+ months']) },
+      { workspaceId: ws.id, entityType: 'lead', name: 'Decision Timeline', key: 'decision_timeline', type: 'select', options: ['< 1 month', '1-3 months', '3-6 months', '6+ months'] },
       { workspaceId: ws.id, entityType: 'deal', name: 'Competitors', key: 'competitors', type: 'text' },
-      { workspaceId: ws.id, entityType: 'company', name: 'Technologies', key: 'technologies', type: 'multiselect', options: JSON.stringify(['AWS', 'GCP', 'Azure', 'Vercel', 'Cloudflare']) },
+      { workspaceId: ws.id, entityType: 'company', name: 'Technologies', key: 'technologies', type: 'multiselect', options: ['AWS', 'GCP', 'Azure', 'Vercel', 'Cloudflare'] },
     ],
   })
 
@@ -402,7 +402,7 @@ async function main() {
         action: ['create', 'update', 'delete', 'invite', 'export'][i % 5],
         entityType: ['lead', 'deal', 'contact', 'workspace', 'automation'][i % 5],
         entityId: leads[i % leads.length].id,
-        meta: JSON.stringify({ ip: '203.0.113.42', userAgent: 'Chrome 130' }),
+        meta: { ip: '203.0.113.42', userAgent: 'Chrome 130' },
         createdAt: daysAgo(i % 14),
       }
     })

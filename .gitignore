@@ -32,10 +32,11 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+!.env.local.example
 
 # vercel
 .vercel
-
 
 # typescript
 *.tsbuildinfo
@@ -52,3 +53,21 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+db/
+
+# Tool results / temp
+tool-results/
+.zscripts/
+download/
+
+# Mini-services local state
+mini-services/*/node_modules/
+mini-services/*/.env
+
+# npm lockfile (project uses bun)
+package-lock.json

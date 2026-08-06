@@ -10,6 +10,7 @@
  * Clients join a room per workspaceId and optionally per userId for private notifications.
  */
 import { createServer } from 'http'
+// @ts-ignore
 import { Server } from 'socket.io'
 
 const PORT = 3003

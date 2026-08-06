@@ -10,7 +10,7 @@ export async function GET(req: Request) {
   })
   return ok(serialize(automations.map((a) => ({
     ...a,
-    graph: a.graph ? JSON.parse(a.graph) : { nodes: [], edges: [] },
+    graph: a.graph || { nodes: [], edges: [] },
   }))))
 }
 
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
       name,
       description,
       triggerType: triggerType || 'lead_created',
-      graph: JSON.stringify(graph || { nodes: [], edges: [] }),
+      graph: graph || { nodes: [], edges: [] },
     },
   })
   return ok(serialize(automation))
@@ -41,7 +41,7 @@ export async function PATCH(req: Request) {
       ...(description !== undefined ? { description } : {}),
       ...(enabled !== undefined ? { enabled } : {}),
       ...(triggerType !== undefined ? { triggerType } : {}),
-      ...(graph !== undefined ? { graph: JSON.stringify(graph) } : {}),
+      ...(graph !== undefined ? { graph } : {}),
     },
   })
   return ok(serialize(automation))

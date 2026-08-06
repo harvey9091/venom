@@ -1,11 +1,10 @@
 // =============================================================
 //  Pulse CRM — Data Schema
-//  Architecture is workspace-isolated (every row carries workspaceId).
-//  Designed to be portable to Supabase Postgres with minimal changes:
-//    - cuid() IDs -> uuid() in Supabase
-//    - SQLite JSON string -> jsonb in Supabase
-//  All "list" fields are normalized to junction/mixin tables because
-//  Prisma schema primitive type cannot be a list.
+//  Workspace-isolated (every row carries workspaceId).
+//  Targets Supabase PostgreSQL:
+//    - uuid() IDs via pgcrypto
+//    - Json / Json? map to jsonb in Postgres
+//  All "list" fields are normalized to junction/mixin tables.
 // =============================================================
 
 generator client {
@@ -13,7 +12,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -22,7 +21,7 @@ datasource db {
 // ----------------------------------------------------------------
 
 model User {
-  id            String   @id @default(cuid())
+  id            String   @id @default(uuid())
   email         String   @unique
   name          String
   avatarUrl     String?
@@ -51,7 +50,7 @@ model User {
 }
 
 model Workspace {
-  id            String   @id @default(cuid())
+  id            String   @id @default(uuid())
   slug          String   @unique
   name          String
   description   String?
@@ -81,7 +80,7 @@ model Workspace {
 }
 
 model Membership {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   userId       String
   workspaceId  String
   role         String   @default("member") // owner | admin | member | viewer
@@ -93,7 +92,7 @@ model Membership {
 }
 
 model Session {
-  id        String   @id @default(cuid())
+  id        String   @id @default(uuid())
   userId    String
   token     String   @unique
   createdAt DateTime @default(now())
@@ -106,7 +105,7 @@ model Session {
 // ----------------------------------------------------------------
 
 model Company {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   name         String
   domain       String?
@@ -133,7 +132,7 @@ model Company {
 }
 
 model Contact {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   companyId    String?
   firstName    String
@@ -159,7 +158,7 @@ model Contact {
 }
 
 model Lead {
-  id            String   @id @default(cuid())
+  id            String   @id @default(uuid())
   workspaceId   String
   contactId     String?
   companyId     String?
@@ -190,7 +189,7 @@ model Lead {
 }
 
 model Pipeline {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   name         String
   description  String?
@@ -204,7 +203,7 @@ model Pipeline {
 }
 
 model Stage {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   pipelineId   String
   name         String
   color        String   @default("#64748b")
@@ -217,7 +216,7 @@ model Stage {
 }
 
 model Deal {
-  id            String   @id @default(cuid())
+  id            String   @id @default(uuid())
   workspaceId   String
   pipelineId    String
   stageId       String
@@ -252,7 +251,7 @@ model Deal {
 // ----------------------------------------------------------------
 
 model Task {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   dealId       String?
   title        String
@@ -282,7 +281,7 @@ model Task {
 }
 
 model TaskWatcher {
-  id        String @id @default(cuid())
+  id        String @id @default(uuid())
   taskId    String
   userId    String
   task      Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -291,7 +290,7 @@ model TaskWatcher {
 }
 
 model Comment {
-  id        String   @id @default(cuid())
+  id        String   @id @default(uuid())
   taskId    String
   authorId  String
   body      String
@@ -301,7 +300,7 @@ model Comment {
 }
 
 model CalendarEvent {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   title        String
   description  String?
@@ -319,7 +318,7 @@ model CalendarEvent {
 }
 
 model Meeting {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   eventId      String
   contactId    String?
   hostId       String
@@ -333,7 +332,7 @@ model Meeting {
 }
 
 model Note {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   authorId     String
   leadId       String?
@@ -356,7 +355,7 @@ model Note {
 }
 
 model File {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   uploaderId   String?
   noteId       String?
@@ -385,7 +384,7 @@ model File {
 // ----------------------------------------------------------------
 
 model Activity {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   actorId      String?
   leadId       String?
@@ -394,7 +393,7 @@ model Activity {
   companyId    String?
   type         String   // created | updated | status_changed | note_added | file_uploaded | email_sent | call_logged
   summary      String
-  meta         String?  // JSON string
+  meta         Json?     // JSON
   createdAt    DateTime @default(now())
 
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -406,7 +405,7 @@ model Activity {
 }
 
 model Notification {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   userId       String
   type         String   // mention | assignment | automation | system
@@ -421,7 +420,7 @@ model Notification {
 }
 
 model Tag {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   name         String
   color        String   @default("#64748b")
@@ -437,7 +436,7 @@ model Tag {
 // entityId is intentionally NOT a FK — it's a polymorphic reference resolved at the app layer.
 // Cascade deletes are handled in the data layer (delete EntityTag rows when an entity is removed).
 model EntityTag {
-  id         String   @id @default(cuid())
+  id         String   @id @default(uuid())
   workspaceId String
   tagId      String
   entityType String   // lead | contact | deal | company | task | note
@@ -448,13 +447,13 @@ model EntityTag {
 }
 
 model CustomField {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   entityType   String   // lead | contact | deal | company | task
   name         String
   key          String
   type         String   // text | number | date | select | multiselect | boolean | url
-  options      String?  // JSON string
+  options      Json?
   required     Boolean  @default(false)
   createdAt    DateTime @default(now())
 
@@ -468,15 +467,15 @@ model CustomField {
 // ----------------------------------------------------------------
 
 model Automation {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   name         String
   description  String?
   enabled      Boolean  @default(true)
   triggerType  String   // lead_created | lead_updated | deal_won | deal_lost | task_completed | task_assigned | pipeline_changed | status_changed | user_joined | csv_imported | contact_added | file_uploaded | workspace_created
-  triggerConfig String? // JSON
-  // graph stored as JSON string of nodes & edges (visual node editor)
-  graph        String
+  triggerConfig Json?
+  // graph stored as JSON of nodes & edges (visual node editor)
+  graph        Json
   runsCount    Int      @default(0)
   lastRunAt    DateTime?
   createdAt    DateTime @default(now())
@@ -487,7 +486,7 @@ model Automation {
 }
 
 model AutomationLog {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   automationId String
   status       String   // success | failed | running
   detail       String?
@@ -497,13 +496,13 @@ model AutomationLog {
 }
 
 model AuditLog {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   actorId      String?
   action       String
   entityType   String
   entityId     String?
-  meta         String?  // JSON
+  meta         Json?
   createdAt    DateTime @default(now())
 
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -511,7 +510,7 @@ model AuditLog {
 }
 
 model ApiKey {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   workspaceId  String
   creatorId    String
   name         String

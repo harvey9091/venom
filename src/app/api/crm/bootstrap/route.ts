@@ -4,7 +4,7 @@
  * Resolves the current user's identity + workspace for the SPA bootstrap.
  *
  * Production (Supabase Auth):
- *   - Reads the Supabase auth session (auth.uid())
+ *   - Reads the Supabase auth session
  *   - Returns the user's profile + primary workspace + members + tags
  *
  * Dev (no auth):
