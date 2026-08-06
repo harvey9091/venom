@@ -14,6 +14,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["public", "auth"]
 }
 
 // ----------------------------------------------------------------
@@ -47,6 +48,8 @@ model User {
   comments      Comment[]
   files         File[]
   auditLogs     AuditLog[]
+
+  @@schema("public")
 }
 
 model Workspace {
@@ -77,6 +80,8 @@ model Workspace {
   auditLogs     AuditLog[]
   apiKeys       ApiKey[]
   events        CalendarEvent[]
+
+  @@schema("public")
 }
 
 model Membership {
@@ -89,6 +94,7 @@ model Membership {
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([userId, workspaceId])
+  @@schema("public")
 }
 
 model Session {
@@ -98,6 +104,8 @@ model Session {
   createdAt DateTime @default(now())
   expiresAt DateTime
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
 }
 
 // ----------------------------------------------------------------
@@ -129,6 +137,8 @@ model Company {
   activities   Activity[]
   notes        Note[]
   files        File[]
+
+  @@schema("public")
 }
 
 model Contact {
@@ -155,6 +165,8 @@ model Contact {
   notes        Note[]
   files        File[]
   meetings     Meeting[]
+
+  @@schema("public")
 }
 
 model Lead {
@@ -186,6 +198,8 @@ model Lead {
   activities   Activity[]
   notes        Note[]
   files        File[]
+
+  @@schema("public")
 }
 
 model Pipeline {
@@ -200,6 +214,8 @@ model Pipeline {
   updatedAt    DateTime @updatedAt
 
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
 }
 
 model Stage {
@@ -213,6 +229,8 @@ model Stage {
   isLost       Boolean  @default(false)
   pipeline     Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
   deals        Deal[]
+
+  @@schema("public")
 }
 
 model Deal {
@@ -244,6 +262,8 @@ model Deal {
   notes         Note[]
   files         File[]
   tasks         Task[]
+
+  @@schema("public")
 }
 
 // ----------------------------------------------------------------
@@ -278,6 +298,8 @@ model Task {
   subtasks     Task[]    @relation("SubtaskParent")
   comments     Comment[]
   watchers     TaskWatcher[]
+
+  @@schema("public")
 }
 
 model TaskWatcher {
@@ -286,7 +308,9 @@ model TaskWatcher {
   userId    String
   task      Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([taskId, userId])
+  @@schema("public")
 }
 
 model Comment {
@@ -297,6 +321,8 @@ model Comment {
   createdAt DateTime @default(now())
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
 }
 
 model CalendarEvent {
@@ -315,20 +341,24 @@ model CalendarEvent {
 
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   meetings     Meeting[]
+
+  @@schema("public")
 }
 
 model Meeting {
-  id           String   @id @default(uuid())
-  eventId      String
-  contactId    String?
-  hostId       String
-  outcome      String?  // scheduled | completed | canceled | no-show
-  notes        String?
-  createdAt    DateTime @default(now())
+  id         String   @id @default(uuid())
+  eventId    String
+  contactId  String?
+  hostId     String
+  outcome    String?  // scheduled | completed | canceled | no-show
+  notes      String?
+  createdAt  DateTime @default(now())
 
   event        CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
   contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
   host         User          @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
 }
 
 model Note {
@@ -352,6 +382,8 @@ model Note {
   deal         Deal?     @relation(fields: [dealId], references: [id], onDelete: SetNull)
   company      Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
   files        File[]
+
+  @@schema("public")
 }
 
 model File {
@@ -377,6 +409,8 @@ model File {
   contact      Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
   deal         Deal?     @relation(fields: [dealId], references: [id], onDelete: SetNull)
   company      Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@schema("public")
 }
 
 // ----------------------------------------------------------------
@@ -402,6 +436,8 @@ model Activity {
   contact      Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
   deal         Deal?     @relation(fields: [dealId], references: [id], onDelete: Cascade)
   company      Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
 }
 
 model Notification {
@@ -417,6 +453,8 @@ model Notification {
 
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
 }
 
 model Tag {
@@ -430,6 +468,7 @@ model Tag {
   entities     EntityTag[]
 
   @@unique([workspaceId, name])
+  @@schema("public")
 }
 
 // Polymorphic tag binding (entityType discriminates: lead | contact | deal | company | task | note).
@@ -444,6 +483,8 @@ model EntityTag {
   createdAt  DateTime @default(now())
 
   tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
 }
 
 model CustomField {
@@ -460,6 +501,7 @@ model CustomField {
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, entityType, key])
+  @@schema("public")
 }
 
 // ----------------------------------------------------------------
@@ -483,6 +525,8 @@ model Automation {
 
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   logs         AutomationLog[]
+
+  @@schema("public")
 }
 
 model AutomationLog {
@@ -493,6 +537,8 @@ model AutomationLog {
   createdAt    DateTime @default(now())
 
   automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
 }
 
 model AuditLog {
@@ -507,6 +553,8 @@ model AuditLog {
 
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   actor        User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@schema("public")
 }
 
 model ApiKey {
@@ -522,4 +570,6 @@ model ApiKey {
 
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   creator      User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
 }
