@@ -130,6 +130,7 @@ const LEAD_STATUSES: StatusMeta[] = [
   { value: 'unqualified', label: 'Unqualified', dot: 'bg-rose-500', pill: 'bg-rose-500/15 text-rose-600 dark:text-rose-300' },
   { value: 'proposal_sent', label: 'Proposal Sent', dot: 'bg-amber-500', pill: 'bg-amber-500/15 text-amber-600 dark:text-amber-300' },
   { value: 'negotiation', label: 'Negotiation', dot: 'bg-orange-500', pill: 'bg-orange-500/15 text-orange-600 dark:text-orange-300' },
+  { value: 'converted', label: 'Converted', dot: 'bg-emerald-500', pill: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300' },
   { value: 'won', label: 'Won', dot: 'bg-emerald-500', pill: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300' },
   { value: 'lost', label: 'Lost', dot: 'bg-red-500', pill: 'bg-red-500/15 text-red-600 dark:text-red-300' },
   { value: 'archived', label: 'Archived', dot: 'bg-gray-500', pill: 'bg-gray-500/15 text-gray-600 dark:text-gray-300' },

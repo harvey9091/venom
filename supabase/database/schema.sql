@@ -1,19 +1,7 @@
 -- =============================================================
---  VENOM CRM — Supabase PostgreSQL Schema
---  Production-ready SQL. Execute directly in Supabase SQL Editor.
---
---  Contents:
---    1.  Extensions
---    2.  Enums
---    3.  Tables
---    4.  Indexes
---    5.  Foreign Keys
---    6.  RLS Policies (workspace isolation)
---    7.  Triggers (updated_at, auto-deal creation)
---    8.  Views (dashboard aggregates)
---    9.  Functions (auto-deal, lead_score)
---    10. Realtime publication
---    11. Storage buckets
+--  VENOM CRM — Canonical Supabase/PostgreSQL Schema
+--  Source of truth: prisma/schema.prisma
+--  Execute in Supabase SQL Editor on a clean database.
 -- =============================================================
 
 -- -------------------------------------------------------------
@@ -23,68 +11,9 @@ create extension if not exists "uuid-ossp";
 create extension if not exists "pgcrypto";
 
 -- -------------------------------------------------------------
--- 2. Enums
--- -------------------------------------------------------------
-do $$ begin
-  create type workspace_plan as enum ('free', 'pro', 'enterprise');
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type membership_role as enum ('owner', 'admin', 'member', 'viewer');
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type lead_status as enum (
-    'new', 'contacted', 'qualified', 'unqualified',
-    'proposal_sent', 'negotiation', 'won', 'lost', 'archived'
-  );
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type lead_source as enum ('website', 'referral', 'ads', 'cold_outreach', 'event', 'other');
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type task_status as enum ('todo', 'in_progress', 'done', 'canceled');
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type task_priority as enum ('low', 'medium', 'high', 'urgent');
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type deal_close_reason as enum ('won', 'lost');
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type notification_type as enum ('mention', 'assignment', 'automation', 'system');
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type automation_log_status as enum ('success', 'failed', 'running');
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type custom_field_type as enum ('text', 'number', 'date', 'select', 'multiselect', 'boolean', 'url');
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type entity_type as enum ('lead', 'contact', 'deal', 'company', 'task', 'note');
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type calendar_event_type as enum ('meeting', 'call', 'task', 'reminder', 'out_of_office');
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type meeting_outcome as enum ('scheduled', 'completed', 'canceled', 'no_show');
-exception when duplicate_object then null; end $$;
-
--- -------------------------------------------------------------
--- 3. Tables
+-- 2. Tables
 -- -------------------------------------------------------------
 
--- Users (mirrors auth.users but holds CRM profile data)
 create table if not exists public.users (
   id          uuid primary key default uuid_generate_v4(),
   auth_id     uuid unique references auth.users(id) on delete cascade,
@@ -103,8 +32,8 @@ create table if not exists public.workspaces (
   name          text not null,
   description   text,
   logo_url      text,
-  accent_color  text default '#d4a373',
-  plan          workspace_plan default 'free',
+  accent_color  text default '#6366f1',
+  plan          text default 'free',
   created_at    timestamptz default now(),
   updated_at    timestamptz default now()
 );
@@ -113,9 +42,17 @@ create table if not exists public.memberships (
   id           uuid primary key default uuid_generate_v4(),
   user_id      uuid not null references public.users(id) on delete cascade,
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
-  role         membership_role default 'member',
+  role         text default 'member',
   joined_at    timestamptz default now(),
   unique (user_id, workspace_id)
+);
+
+create table if not exists public.sessions (
+  id        uuid primary key default uuid_generate_v4(),
+  user_id   uuid not null references public.users(id) on delete cascade,
+  token     text unique not null,
+  created_at timestamptz default now(),
+  expires_at timestamptz not null
 );
 
 create table if not exists public.companies (
@@ -164,8 +101,8 @@ create table if not exists public.leads (
   full_name       text not null,
   email           text,
   phone           text,
-  source          lead_source,
-  status          lead_status default 'new',
+  source          text,
+  status          text default 'new',
   score           integer default 0,
   estimated_value double precision,
   expected_close  timestamptz,
@@ -210,17 +147,10 @@ create table if not exists public.deals (
   probability    integer default 20,
   expected_close timestamptz,
   closed_at      timestamptz,
-  close_reason   deal_close_reason,
+  close_reason   text,
   created_at     timestamptz default now(),
   updated_at     timestamptz default now()
 );
-
--- Back-reference: lead.converted_deal_id → deals.id
-do $$ begin
-  alter table public.leads
-    add constraint leads_converted_deal_id_fkey
-    foreign key (converted_deal_id) references public.deals(id) on delete set null;
-exception when duplicate_object then null; end $$;
 
 create table if not exists public.tasks (
   id            uuid primary key default uuid_generate_v4(),
@@ -228,8 +158,8 @@ create table if not exists public.tasks (
   deal_id       uuid references public.deals(id) on delete set null,
   title         text not null,
   description   text,
-  status        task_status default 'todo',
-  priority      task_priority default 'medium',
+  status        text default 'todo',
+  priority      text default 'medium',
   owner_id      uuid references public.users(id) on delete set null,
   assignee_id   uuid references public.users(id) on delete set null,
   creator_id    uuid references public.users(id) on delete cascade,
@@ -262,7 +192,7 @@ create table if not exists public.calendar_events (
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   title        text not null,
   description  text,
-  type         calendar_event_type default 'meeting',
+  type         text default 'meeting',
   start_at     timestamptz not null,
   end_at       timestamptz not null,
   all_day      boolean default false,
@@ -277,7 +207,7 @@ create table if not exists public.meetings (
   event_id   uuid not null references public.calendar_events(id) on delete cascade,
   contact_id uuid references public.contacts(id) on delete set null,
   host_id    uuid not null references public.users(id) on delete cascade,
-  outcome    meeting_outcome,
+  outcome    text,
   notes      text,
   created_at timestamptz default now()
 );
@@ -332,7 +262,7 @@ create table if not exists public.notifications (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   user_id      uuid not null references public.users(id) on delete cascade,
-  type         notification_type not null,
+  type         text not null,
   title        text not null,
   body         text,
   link         text,
@@ -349,12 +279,11 @@ create table if not exists public.tags (
   unique (workspace_id, name)
 );
 
--- Polymorphic tag bindings (entity_id is NOT a FK — resolved at app layer)
 create table if not exists public.entity_tags (
   id          uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   tag_id      uuid not null references public.tags(id) on delete cascade,
-  entity_type entity_type not null,
+  entity_type text not null,
   entity_id   uuid not null,
   created_at  timestamptz default now()
 );
@@ -362,10 +291,10 @@ create table if not exists public.entity_tags (
 create table if not exists public.custom_fields (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
-  entity_type  entity_type not null,
+  entity_type  text not null,
   name         text not null,
   key          text not null,
-  type         custom_field_type not null,
+  type         text not null,
   options      jsonb,
   required     boolean default false,
   created_at   timestamptz default now(),
@@ -388,11 +317,11 @@ create table if not exists public.automations (
 );
 
 create table if not exists public.automation_logs (
-  id            uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default uuid_generate_v4(),
   automation_id uuid not null references public.automations(id) on delete cascade,
-  status        automation_log_status not null,
-  detail        text,
-  created_at    timestamptz default now()
+  status       text not null,
+  detail       text,
+  created_at   timestamptz default now()
 );
 
 create table if not exists public.audit_logs (
@@ -418,9 +347,23 @@ create table if not exists public.api_keys (
   created_at   timestamptz default now()
 );
 
+create table if not exists public.workspace_preferences (
+  workspace_id uuid primary key references public.workspaces(id) on delete cascade,
+  nav_mode     text default 'sidebar',
+  updated_at   timestamptz default now()
+);
+
+-- Back-reference: leads.converted_deal_id -> deals.id
+do $$ begin
+  alter table public.leads
+    add constraint leads_converted_deal_id_fkey
+    foreign key (converted_deal_id) references public.deals(id) on delete set null;
+exception when duplicate_object then null; end $$;
+
 -- -------------------------------------------------------------
--- 4. Indexes
+-- 3. Indexes
 -- -------------------------------------------------------------
+
 create index if not exists idx_memberships_user on public.memberships(user_id);
 create index if not exists idx_memberships_workspace on public.memberships(workspace_id);
 create index if not exists idx_companies_workspace on public.companies(workspace_id);
@@ -447,10 +390,17 @@ create index if not exists idx_entity_tags_entity on public.entity_tags(entity_t
 create index if not exists idx_audit_logs_workspace on public.audit_logs(workspace_id, created_at desc);
 create index if not exists idx_calendar_events_workspace on public.calendar_events(workspace_id, start_at);
 create index if not exists idx_stages_pipeline on public.stages(pipeline_id, "order");
+create index if not exists idx_tags_workspace on public.tags(workspace_id);
+create index if not exists idx_custom_fields_workspace on public.custom_fields(workspace_id);
+create index if not exists idx_entity_tags_workspace on public.entity_tags(workspace_id);
+create index if not exists idx_activities_lead on public.activities(lead_id);
+create index if not exists idx_activities_deal on public.activities(deal_id);
+create index if not exists idx_workspace_prefs on public.workspace_preferences(workspace_id);
 
 -- -------------------------------------------------------------
--- 5. RLS Policies — workspace isolation
+-- 4. RLS Policies
 -- -------------------------------------------------------------
+
 alter table public.users enable row level security;
 alter table public.workspaces enable row level security;
 alter table public.memberships enable row level security;
@@ -476,6 +426,8 @@ alter table public.automations enable row level security;
 alter table public.automation_logs enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.api_keys enable row level security;
+alter table public.workspace_preferences enable row level security;
+alter table public.sessions enable row level security;
 
 -- Helper: get the current user's workspace IDs
 create or replace function public.current_user_workspace_ids()
@@ -492,7 +444,7 @@ $$;
 create policy "users_self_read" on public.users for select using (auth_id = auth.uid());
 create policy "users_self_update" on public.users for update using (auth_id = auth.uid());
 
--- Workspaces: members can read, only owners can update/delete
+-- Workspaces: members can read, only owners can update
 create policy "workspaces_member_read" on public.workspaces for select
   using (id in (select public.current_user_workspace_ids()));
 create policy "workspaces_owner_update" on public.workspaces for update
@@ -500,12 +452,26 @@ create policy "workspaces_owner_update" on public.workspaces for update
     join public.users u on u.id = m.user_id
     where u.auth_id = auth.uid() and m.role = 'owner'));
 
--- Memberships: workspace members can read; owners/admins can manage
+-- Memberships: workspace members can read; owners can manage
 create policy "memberships_member_read" on public.memberships for select
   using (workspace_id in (select public.current_user_workspace_ids()));
+create policy "memberships_owner_write" on public.memberships for all
+  using (workspace_id in (
+    select workspace_id from public.memberships m
+    join public.users u on u.id = m.user_id
+    where u.auth_id = auth.uid() and m.role = 'owner'
+  ))
+  with check (workspace_id in (
+    select workspace_id from public.memberships m
+    join public.users u on u.id = m.user_id
+    where u.auth_id = auth.uid() and m.role = 'owner'
+  ));
 
--- All workspace-scoped tables: members can read; members can write
--- (Role-level enforcement happens at the API layer for finer control)
+-- Sessions: users can read their own sessions
+create policy "sessions_self_read" on public.sessions for select
+  using (user_id in (select id from public.users where auth_id = auth.uid()));
+
+-- All workspace-scoped tables: members can read/write
 create policy "ws_companies_read" on public.companies for select
   using (workspace_id in (select public.current_user_workspace_ids()));
 create policy "ws_companies_write" on public.companies for all
@@ -571,6 +537,9 @@ create policy "ws_notifications_write" on public.notifications for all
   using (workspace_id in (select public.current_user_workspace_ids()))
   with check (workspace_id in (select public.current_user_workspace_ids()));
 
+create policy "notifications_self_update" on public.notifications for update
+  using (user_id in (select id from public.users where auth_id = auth.uid()));
+
 create policy "ws_tags_read" on public.tags for select
   using (workspace_id in (select public.current_user_workspace_ids()));
 create policy "ws_tags_write" on public.tags for all
@@ -612,17 +581,32 @@ create policy "ws_calendar_write" on public.calendar_events for all
   using (workspace_id in (select public.current_user_workspace_ids()))
   with check (workspace_id in (select public.current_user_workspace_ids()));
 
+create policy "ws_meetings_read" on public.meetings for select
+  using (event_id in (select id from public.calendar_events where workspace_id in (select public.current_user_workspace_ids())));
+create policy "ws_meetings_write" on public.meetings for all
+  using (event_id in (select id from public.calendar_events where workspace_id in (select public.current_user_workspace_ids())))
+  with check (event_id in (select id from public.calendar_events where workspace_id in (select public.current_user_workspace_ids())));
+
 create policy "comments_read" on public.comments for select
   using (task_id in (select id from public.tasks where workspace_id in (select public.current_user_workspace_ids())));
 create policy "comments_write" on public.comments for all
   using (task_id in (select id from public.tasks where workspace_id in (select public.current_user_workspace_ids())))
   with check (task_id in (select id from public.tasks where workspace_id in (select public.current_user_workspace_ids())));
 
+create policy "ws_prefs_read" on public.workspace_preferences for select
+  using (workspace_id in (select public.current_user_workspace_ids()));
+create policy "ws_prefs_write" on public.workspace_preferences for update
+  using (workspace_id in (select workspace_id from public.memberships m
+    join public.users u on u.id = m.user_id
+    where u.auth_id = auth.uid() and m.role in ('owner', 'admin')))
+  with check (workspace_id in (select public.current_user_workspace_ids()));
+create policy "ws_prefs_insert" on public.workspace_preferences for insert
+  with check (workspace_id in (select public.current_user_workspace_ids()));
+
 -- -------------------------------------------------------------
--- 6. Triggers — updated_at auto-maintenance + auto-deal creation
+-- 5. Triggers — updated_at auto-maintenance
 -- -------------------------------------------------------------
 
--- Generic updated_at trigger function
 create or replace function public.touch_updated_at()
 returns trigger
 language plpgsql
@@ -637,206 +621,31 @@ do $$
 declare tbl text;
 begin
   for tbl in
-    select unnest(array['users','workspaces','companies','contacts','leads','pipelines','deals','tasks','notes','calendar_events','automations'])
+    select unnest(array['users','workspaces','memberships','companies','contacts','leads','pipelines','stages','deals','tasks','notes','calendar_events','automations','workspace_preferences'])
   loop
     execute format('drop trigger if exists trg_%s_touch on public.%s', tbl, tbl);
     execute format('create trigger trg_%s_touch before update on public.%s for each row execute function public.touch_updated_at();', tbl, tbl);
   end loop;
 end $$;
 
--- AUTO-DEAL CREATION: when a lead's estimated_value is set/changed AND the lead has no converted_deal_id,
--- automatically create a Deal and link it back. When estimated_value or status changes on a lead WITH a deal,
--- sync the deal's amount / expected_close / stage.
-create or replace function public.auto_create_or_sync_deal()
-returns trigger
-language plpgsql
+-- -------------------------------------------------------------
+-- 6. Functions
+-- -------------------------------------------------------------
+
+create or replace function public.upsert_nav_mode(ws_uuid uuid, mode text)
+returns void
+language sql
 security definer
 as $$
-declare
-  v_pipeline uuid;
-  v_stage uuid;
-  v_won_stage uuid;
-  v_lost_stage uuid;
-  v_status_target text;
-begin
-  -- Only act when estimated_value, expected_close, or status changed
-  if (new.estimated_value is null) then return new; end if;
-  if (tg_op = 'UPDATE' and old.estimated_value = new.estimated_value
-      and old.expected_close = new.expected_close
-      and old.status = new.status
-      and old.converted_deal_id is not null) then
-    return new;
-  end if;
-
-  -- Find default pipeline + first stage
-  select id into v_pipeline from public.pipelines where workspace_id = new.workspace_id and is_default = true limit 1;
-  if v_pipeline is null then
-    select id into v_pipeline from public.pipelines where workspace_id = new.workspace_id limit 1;
-  end if;
-  if v_pipeline is null then return new; end if;
-
-  select id into v_stage from public.stages where pipeline_id = v_pipeline order by "order" asc limit 1;
-  if v_stage is null then return new; end if;
-
-  -- Map lead status → stage name
-  v_status_target := case new.status
-    when 'proposal_sent' then 'Proposal'
-    when 'negotiation' then 'Negotiation'
-    when 'won' then 'Closed Won'
-    when 'lost' then 'Closed Lost'
-    when 'qualified' then 'Qualified'
-    when 'contacted' then 'Demo'
-    else null
-  end;
-  if v_status_target is not null then
-    select id into v_stage from public.stages where pipeline_id = v_pipeline and name ilike '%' || v_status_target || '%' limit 1;
-  end if;
-  select id into v_won_stage from public.stages where pipeline_id = v_pipeline and is_won = true limit 1;
-  select id into v_lost_stage from public.stages where pipeline_id = v_pipeline and is_lost = true limit 1;
-
-  if new.converted_deal_id is null then
-    -- Create new deal
-    insert into public.deals (workspace_id, pipeline_id, stage_id, contact_id, company_id, owner_id, title, amount, currency, probability, expected_close, closed_at, close_reason)
-    values (new.workspace_id, v_pipeline, v_stage, new.contact_id, new.company_id, new.owner_id,
-            new.full_name || ' — Deal', coalesce(new.estimated_value, 0), 'INR',
-            (select probability from public.stages where id = v_stage),
-            new.expected_close,
-            case when new.status in ('won','lost') then now() else null end,
-            case new.status when 'won' then 'won'::deal_close_reason when 'lost' then 'lost'::deal_close_reason else null end)
-    returning id into new.converted_deal_id;
-  else
-    -- Sync existing deal
-    update public.deals set
-      amount = coalesce(new.estimated_value, deals.amount),
-      expected_close = new.expected_close,
-      stage_id = case
-        when new.status = 'won' and v_won_stage is not null then v_won_stage
-        when new.status = 'lost' and v_lost_stage is not null then v_lost_stage
-        when v_status_target is not null and v_stage is not null then v_stage
-        else deals.stage_id
-      end,
-      closed_at = case when new.status in ('won','lost') then now() else deals.closed_at end,
-      close_reason = case new.status when 'won' then 'won'::deal_close_reason when 'lost' then 'lost'::deal_close_reason else deals.close_reason end
-    where id = new.converted_deal_id;
-  end if;
-
-  return new;
-end;
-$$;
-
-drop trigger if exists trg_leads_auto_deal on public.leads;
-create trigger trg_leads_auto_deal
-  after insert or update of estimated_value, expected_close, status
-  on public.leads
-  for each row execute function public.auto_create_or_sync_deal();
-
--- -------------------------------------------------------------
--- 7. Views — dashboard aggregates
--- -------------------------------------------------------------
-
-create or replace view public.v_dashboard_metrics as
-select
-  w.id as workspace_id,
-  count(distinct l.id) filter (where l.status not in ('won','lost','archived')) as open_leads,
-  count(distinct l.id) filter (where l.status = 'won') as won_leads,
-  count(distinct l.id) filter (where l.status = 'lost') as lost_leads,
-  coalesce(sum(l.estimated_value) filter (where l.status not in ('won','lost','archived')), 0) as pipeline_value,
-  coalesce(sum(l.estimated_value) filter (where l.status = 'won'), 0) as won_value,
-  count(distinct d.id) filter (where d.closed_at is null) as open_deals,
-  count(distinct d.id) filter (where d.close_reason = 'won') as won_deals,
-  count(distinct t.id) filter (where t.status = 'todo') as todo_tasks,
-  count(distinct t.id) filter (where t.status = 'in_progress') as in_progress_tasks,
-  count(distinct n.id) as total_notes
-from public.workspaces w
-left join public.leads l on l.workspace_id = w.id
-left join public.deals d on d.workspace_id = w.id
-left join public.tasks t on t.workspace_id = w.id
-left join public.notes n on n.workspace_id = w.id
-group by w.id;
-
-create or replace view public.v_pipeline_health as
-select
-  p.workspace_id,
-  p.id as pipeline_id,
-  p.name as pipeline_name,
-  s.id as stage_id,
-  s.name as stage_name,
-  s.color as stage_color,
-  s.probability,
-  s.is_won,
-  s.is_lost,
-  count(d.id) as deal_count,
-  coalesce(sum(d.amount), 0) as stage_value
-from public.pipelines p
-join public.stages s on s.pipeline_id = p.id
-left join public.deals d on d.stage_id = s.id
-group by p.id, s.id
-order by p.id, s."order";
-
-create or replace view public.v_lead_sources as
-select
-  workspace_id,
-  coalesce(source::text, 'unknown') as source,
-  count(*) as count
-from public.leads
-group by workspace_id, source
-order by count desc;
-
--- -------------------------------------------------------------
--- 8. Functions — lead score (simple heuristic, replaceable with AI)
--- -------------------------------------------------------------
-
-create or replace function public.compute_lead_score(lead_uuid uuid)
-returns integer
-language plpgsql
-security definer
-as $$
-declare
-  v_lead public.leads%rowtype;
-  v_score integer := 0;
-begin
-  select * into v_lead from public.leads where id = lead_uuid;
-  if not found then return 0; end if;
-
-  -- Email present: +15
-  if v_lead.email is not null then v_score := v_score + 15; end if;
-  -- Phone present: +10
-  if v_lead.phone is not null then v_score := v_score + 10; end if;
-  -- Estimated value > 5,00,000: +25
-  if v_lead.estimated_value is not null and v_lead.estimated_value > 500000 then
-    v_score := v_score + 25;
-  elsif v_lead.estimated_value is not null and v_lead.estimated_value > 100000 then
-    v_score := v_score + 15;
-  end if;
-  -- Status progression
-  v_score := v_score + case v_lead.status
-    when 'qualified' then 20
-    when 'proposal_sent' then 30
-    when 'negotiation' then 40
-    when 'won' then 50
-    else 5
-  end;
-  -- Source weighting
-  v_score := v_score + case v_lead.source
-    when 'referral' then 15
-    when 'event' then 10
-    when 'website' then 8
-    else 3
-  end;
-  -- Recent activity (last 7 days): +10
-  if v_lead.last_activity_at is not null and v_lead.last_activity_at > now() - interval '7 days' then
-    v_score := v_score + 10;
-  end if;
-
-  v_score := least(v_score, 100);
-  update public.leads set score = v_score where id = lead_uuid;
-  return v_score;
-end;
+  insert into public.workspace_preferences (workspace_id, nav_mode)
+  values (ws_uuid, mode)
+  on conflict (workspace_id) do update set nav_mode = excluded.nav_mode, updated_at = now();
 $$;
 
 -- -------------------------------------------------------------
--- 9. Realtime publication
+-- 7. Realtime publication
 -- -------------------------------------------------------------
+
 do $$
 declare tbl text;
 begin
@@ -851,41 +660,9 @@ begin
 end $$;
 
 -- -------------------------------------------------------------
--- 9b. Workspace Preferences (Phase 3 — Navigation mode persistence)
+-- 8. Storage buckets
 -- -------------------------------------------------------------
-create table if not exists public.workspace_preferences (
-  workspace_id uuid primary key references public.workspaces(id) on delete cascade,
-  nav_mode     text default 'sidebar' check (nav_mode in ('sidebar', 'dock')),
-  updated_at   timestamptz default now()
-);
 
-alter table public.workspace_preferences enable row level security;
-create policy "ws_prefs_read" on public.workspace_preferences for select
-  using (workspace_id in (select public.current_user_workspace_ids()));
-create policy "ws_prefs_write" on public.workspace_preferences for update
-  using (workspace_id in (select workspace_id from public.memberships m
-    join public.users u on u.id = m.user_id
-    where u.auth_id = auth.uid() and m.role in ('owner', 'admin')))
-  with check (workspace_id in (select public.current_user_workspace_ids()));
-create policy "ws_prefs_insert" on public.workspace_preferences for insert
-  with check (workspace_id in (select public.current_user_workspace_ids()));
-
-create index if not exists idx_ws_prefs_workspace on public.workspace_preferences(workspace_id);
-
--- Auto-upsert helper: create or update nav_mode for a workspace
-create or replace function public.upsert_nav_mode(ws_uuid uuid, mode text)
-returns void
-language sql
-security definer
-as $$
-  insert into public.workspace_preferences (workspace_id, nav_mode)
-  values (ws_uuid, mode)
-  on conflict (workspace_id) do update set nav_mode = excluded.nav_mode, updated_at = now();
-$$;
-
--- -------------------------------------------------------------
--- 10. Storage buckets
--- -------------------------------------------------------------
 insert into storage.buckets (id, name, public) values ('venom-files', 'venom-files', true)
   on conflict (id) do nothing;
 insert into storage.buckets (id, name, public) values ('venom-avatars', 'venom-avatars', true)
@@ -893,7 +670,7 @@ insert into storage.buckets (id, name, public) values ('venom-avatars', 'venom-a
 insert into storage.buckets (id, name, public) values ('venom-workspace-logos', 'venom-workspace-logos', true)
   on conflict (id) do nothing;
 
--- Storage policies: workspace members can read/write files in their workspace path
+-- Storage policies
 create policy "venom_files_read" on storage.objects for select
   using (bucket_id = 'venom-files');
 create policy "venom_files_write" on storage.objects for insert
@@ -905,62 +682,3 @@ create policy "venom_avatars_read" on storage.objects for select
   using (bucket_id = 'venom-avatars');
 create policy "venom_avatars_write" on storage.objects for insert
   with check (bucket_id = 'venom-avatars');
-
--- -------------------------------------------------------------
--- 11. Missing indexes and constraints (Phase 1 fixes)
--- -------------------------------------------------------------
-
-create index if not exists idx_tags_workspace on public.tags(workspace_id);
-create index if not exists idx_custom_fields_workspace on public.custom_fields(workspace_id);
-create index if not exists idx_entity_tags_workspace on public.entity_tags(workspace_id);
-create index if not exists idx_activities_lead on public.activities(lead_id);
-create index if not exists idx_activities_deal on public.activities(deal_id);
-
--- Tag unique constraint per workspace
-create unique index if not exists idx_tags_workspace_name on public.tags(workspace_id, name);
-
--- -------------------------------------------------------------
--- 12. Missing RLS policies (Phase 1 fixes)
--- -------------------------------------------------------------
-
--- Memberships: owners can INSERT/UPDATE/DELETE
-create policy "memberships_owner_write" on public.memberships for all
-  using (workspace_id in (
-    select workspace_id from public.memberships m
-    join public.users u on u.id = m.user_id
-    where u.auth_id = auth.uid() and m.role = 'owner'
-  ))
-  with check (workspace_id in (
-    select workspace_id from public.memberships m
-    join public.users u on u.id = m.user_id
-    where u.auth_id = auth.uid() and m.role = 'owner'
-  ));
-
--- Notifications: users can update their own notifications (mark as read)
-create policy "notifications_self_update" on public.notifications for update
-  using (user_id in (select id from public.users where auth_id = auth.uid()));
-
--- -------------------------------------------------------------
--- 13. Meetings table (was missing from SQL)
--- -------------------------------------------------------------
-
-create table if not exists public.meetings (
-  id         uuid primary key default uuid_generate_v4(),
-  event_id   uuid not null references public.calendar_events(id) on delete cascade,
-  contact_id uuid references public.contacts(id) on delete set null,
-  host_id    uuid not null references public.users(id) on delete cascade,
-  outcome    meeting_outcome,
-  notes      text,
-  created_at timestamptz default now()
-);
-
-alter table public.meetings enable row level security;
-create policy "ws_meetings_read" on public.meetings for select
-  using (event_id in (select id from public.calendar_events where workspace_id in (select public.current_user_workspace_ids())));
-create policy "ws_meetings_write" on public.meetings for all
-  using (event_id in (select id from public.calendar_events where workspace_id in (select public.current_user_workspace_ids())))
-  with check (event_id in (select id from public.calendar_events where workspace_id in (select public.current_user_workspace_ids())));
-
--- -------------------------------------------------------------
--- Done. Schema is ready for production use.
--- -------------------------------------------------------------

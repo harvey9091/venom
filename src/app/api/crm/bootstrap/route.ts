@@ -12,140 +12,94 @@ const DEFAULT_PIPELINE_STAGES = [
   { name: 'Closed Lost', color: '#ef4444', probability: 0, isLost: true },
 ]
 
-export async function GET() {
-  try {
-    const supabase = await createSupabaseServerClient()
+type BootstrapErrorCode =
+  | 'AUTH_REQUIRED'
+  | 'USER_NOT_FOUND'
+  | 'WORKSPACE_NOT_FOUND'
+  | 'DATABASE_CONNECTION_ERROR'
+  | 'DATABASE_SCHEMA_ERROR'
+  | 'DATABASE_PERMISSION_ERROR'
+  | 'DATABASE_CONSTRAINT_ERROR'
+  | 'CONFIGURATION_ERROR'
+  | 'UNKNOWN_BOOTSTRAP_ERROR'
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
+function classifyError(error: unknown): { code: BootstrapErrorCode; message: string; status: number } {
+  const err = error instanceof Error ? error : new Error(String(error))
+  const msg = err.message.toLowerCase()
 
-    if (!session) {
-      if (process.env.NODE_ENV === 'development') {
-        let user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
+  if (msg.includes('unauthorized') || msg.includes('jwt') || msg.includes('invalid token') || msg.includes('auth')) {
+    return { code: 'AUTH_REQUIRED', message: 'Authentication required', status: 401 }
+  }
+  if (msg.includes('p1001') || msg.includes('can\'t reach database') || msg.includes('connect') || msg.includes('timeout')) {
+    return { code: 'DATABASE_CONNECTION_ERROR', message: 'Database connection failed', status: 503 }
+  }
+  if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('column') || msg.includes('schema')) {
+    return { code: 'DATABASE_SCHEMA_ERROR', message: 'Database schema error', status: 500 }
+  }
+  if (msg.includes('permission') || msg.includes('rls') || msg.includes('policy')) {
+    return { code: 'DATABASE_PERMISSION_ERROR', message: 'Database permission error', status: 500 }
+  }
+  if (msg.includes('unique') || msg.includes('duplicate') || msg.includes('constraint') || msg.includes('violation')) {
+    return { code: 'DATABASE_CONSTRAINT_ERROR', message: 'Database constraint error', status: 409 }
+  }
+  if (msg.includes('missing') || msg.includes('env') || msg.includes('config')) {
+    return { code: 'CONFIGURATION_ERROR', message: 'Server configuration error', status: 500 }
+  }
 
-        if (!user) {
-          user = await db.user.create({
-            data: {
-              email: 'dev@venom.crm',
-              name: 'New User',
-              jobTitle: 'Owner',
-            },
-          })
+  return { code: 'UNKNOWN_BOOTSTRAP_ERROR', message: 'Failed to bootstrap workspace', status: 500 }
+}
 
-          const workspace = await db.workspace.create({
-            data: {
-              slug: `ws-${Date.now().toString(36)}`,
-              name: 'My Workspace',
-              description: 'Your Venom CRM workspace',
-              accentColor: '#d4a373',
-              plan: 'free',
-            },
-          })
-
-          await db.membership.create({
-            data: {
-              userId: user.id,
-              workspaceId: workspace.id,
-              role: 'owner',
-            },
-          })
-
-          const pipeline = await db.pipeline.create({
-            data: {
-              workspaceId: workspace.id,
-              name: 'Sales Pipeline',
-              isDefault: true,
-              description: 'Standard sales pipeline',
-            },
-          })
-
-          for (let i = 0; i < DEFAULT_PIPELINE_STAGES.length; i++) {
-            const s = DEFAULT_PIPELINE_STAGES[i]
-            await db.stage.create({
-              data: {
-                pipelineId: pipeline.id,
-                name: s.name,
-                color: s.color,
-                probability: s.probability,
-                order: i,
-                isWon: !!s.isWon,
-                isLost: !!s.isLost,
-              },
-            })
-          }
-
-          return NextResponse.json({
-            ok: true,
-            data: {
-              user: { id: user.id, email: user.email, name: user.name },
-              workspace: { id: workspace.id, name: workspace.name, slug: workspace.slug },
-              members: [],
-              tags: [],
-              freshlyProvisioned: true,
-            },
-          })
-        }
-
-        const membership = await db.membership.findFirst({
-          where: { userId: user.id },
-          include: { workspace: true },
-          orderBy: { joinedAt: 'asc' },
-        })
-        const workspace = membership?.workspace || null
-        const workspaceId = workspace?.id
-
-        const [members, tags, memberships] = workspaceId
-          ? await Promise.all([
-              db.membership.findMany({ where: { workspaceId }, include: { user: true } }),
-              db.tag.findMany({ where: { workspaceId }, orderBy: { name: 'asc' } }),
-              db.membership.findMany({
-                where: { userId: user.id },
-                include: { workspace: true },
-                orderBy: { joinedAt: 'asc' },
-              }),
-            ])
-          : [[], [], []]
-
-        const serializedMemberships = memberships.map((m) => ({
-          id: m.id,
-          userId: m.userId,
-          workspaceId: m.workspaceId,
-          role: m.role,
-          joinedAt: m.joinedAt,
-          workspace: m.workspace ? {
-            id: m.workspace.id,
-            name: m.workspace.name,
-            slug: m.workspace.slug,
-            plan: m.workspace.plan,
-          } : null,
-        }))
-
-        return NextResponse.json({
-          ok: true,
-          data: { user, workspace, members, tags, memberships: serializedMemberships, freshlyProvisioned: false },
-        })
+async function getSupabaseUserFromRequest(request: NextRequest) {
+  const authHeader = request.headers.get('authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7)
+    try {
+      const supabase = await createSupabaseServerClient()
+      const { data: { user }, error } = await supabase.auth.getUser(token)
+      if (!error && user) {
+        return user
       }
+    } catch {
+      // fall through to cookie-based auth
+    }
+  }
 
-      return NextResponse.json({ ok: true, data: null })
+  const supabase = await createSupabaseServerClient()
+  const { data: { session } } = await supabase.auth.getSession()
+  if (session?.user) {
+    return session.user
+  }
+
+  return null
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const supabaseUser = await getSupabaseUserFromRequest(request)
+
+    if (!supabaseUser) {
+      return NextResponse.json(
+        { ok: false, code: 'AUTH_REQUIRED', error: 'Authentication required' },
+        { status: 401 }
+      )
     }
 
     let user = await db.user.findFirst({
-      where: { email: session.user.email || undefined },
+      where: { email: supabaseUser.email || undefined },
     })
 
     if (!user) {
       user = await db.user.create({
         data: {
-          email: session.user.email || '',
-          name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
-          avatarUrl: session.user.user_metadata?.avatar_url || null,
-          jobTitle: session.user.user_metadata?.job_title || null,
+          email: supabaseUser.email || '',
+          name: supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
+          avatarUrl: supabaseUser.user_metadata?.avatar_url || null,
+          jobTitle: supabaseUser.user_metadata?.job_title || null,
         },
       })
     }
 
-    let membership = await db.membership.findFirst({
+    const membership = await db.membership.findFirst({
       where: { userId: user.id },
       include: { workspace: true },
       orderBy: { joinedAt: 'asc' },
@@ -162,13 +116,12 @@ export async function GET() {
         },
       })
 
-      membership = await db.membership.create({
+      await db.membership.create({
         data: {
           userId: user.id,
           workspaceId: workspace.id,
           role: 'owner',
         },
-        include: { workspace: true },
       })
 
       const pipeline = await db.pipeline.create({
@@ -240,9 +193,10 @@ export async function GET() {
     })
   } catch (error) {
     console.error('Bootstrap error:', error)
+    const { code, message, status } = classifyError(error)
     return NextResponse.json(
-      { ok: false, error: 'Failed to bootstrap' },
-      { status: 500 }
+      { ok: false, code, error: message },
+      { status }
     )
   }
 }

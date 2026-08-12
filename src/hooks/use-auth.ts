@@ -37,7 +37,6 @@ export function useAuth(): AuthState {
       setUser(session?.user ?? null)
       if (session?.user) {
         setUserStore(session.user as unknown as import('@/lib/types').User)
-        loadWorkspace(session.access_token)
       } else {
         setIsLoading(false)
       }
@@ -50,39 +49,16 @@ export function useAuth(): AuthState {
       setUser(session?.user ?? null)
       if (session?.user) {
         setUserStore(session.user as unknown as import('@/lib/types').User)
-        loadWorkspace(session.access_token)
       } else {
         setUserStore(null)
         setWorkspaceStore(null)
         setWorkspacesStore([])
-        setIsLoading(false)
       }
+      setIsLoading(false)
     })
 
     return () => subscription.unsubscribe()
   }, [setUserStore, setWorkspaceStore, setWorkspacesStore])
-
-  const loadWorkspace = async (accessToken: string) => {
-    try {
-      const r = await fetch('/api/crm/bootstrap', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-      const j = await r.json()
-      if (j.data?.user) setUserStore(j.data.user)
-      if (j.data?.workspace) {
-        setWorkspaceStore(j.data.workspace)
-      }
-      if (j.data?.memberships?.length) {
-        setWorkspacesStore(j.data.memberships)
-      }
-    } catch {
-      // ignore bootstrap errors
-    } finally {
-      setIsLoading(false)
-    }
-  }
 
   const signIn = useCallback(async (email: string, password: string) => {
     const supabase = createSupabaseBrowserClient()

@@ -76,6 +76,7 @@ export type LeadStatus =
   | 'won'
   | 'lost'
   | 'archived'
+  | 'converted'
 
 export interface Lead {
   id: string

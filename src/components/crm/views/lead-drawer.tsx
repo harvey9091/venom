@@ -81,6 +81,7 @@ const LEAD_STATUSES: { value: LeadStatus; label: string }[] = [
   { value: 'unqualified', label: 'Unqualified' },
   { value: 'proposal_sent', label: 'Proposal Sent' },
   { value: 'negotiation', label: 'Negotiation' },
+  { value: 'converted', label: 'Converted' },
   { value: 'won', label: 'Won' },
   { value: 'lost', label: 'Lost' },
   { value: 'archived', label: 'Archived' },
