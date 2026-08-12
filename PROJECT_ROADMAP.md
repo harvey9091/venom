@@ -56,12 +56,12 @@
 **Status**: Complete
 
 - [x] Canonical schema.sql created
-- [x] Prisma schema defined (24 models)
+- [x] Prisma schema defined (26 models)
 - [x] RLS policies for all tables
 - [x] Database indexes for performance
 - [x] `current_user_workspace_ids()` helper function
 - [x] Updated_at triggers
-- [x] Storage buckets configured
+- [x] Storage integration audited — no Supabase Storage currently used
 - [x] Demo seed script
 
 **Remaining**:

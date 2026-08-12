@@ -33,7 +33,6 @@ model User {
   updatedAt DateTime @updatedAt
 
   memberships   Membership[]
-  sessions      Session[]
   notifications Notification[]
   activities    Activity[]
   ownedLeads    Lead[]         @relation("LeadOwner")
@@ -97,17 +96,6 @@ model Membership {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([userId, workspaceId])
-  @@schema("public")
-}
-
-model Session {
-  id        String   @id @default(uuid())
-  userId    String
-  token     String   @unique
-  createdAt DateTime @default(now())
-  expiresAt DateTime
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
   @@schema("public")
 }
 

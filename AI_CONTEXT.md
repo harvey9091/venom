@@ -79,7 +79,7 @@ docs/                          # Documentation
 
 ## Database model
 
-- 24 tables in `public` schema
+- 27 tables in `public` schema
 - All CRM tables workspace-scoped
 - RLS policies enforce isolation
 - `current_user_workspace_ids()` function for policy checks

@@ -48,7 +48,6 @@ async function main() {
   await db.contact.deleteMany()
   await db.company.deleteMany()
   await db.membership.deleteMany()
-  await db.session.deleteMany()
   await db.workspace.deleteMany()
   await db.user.deleteMany()
 

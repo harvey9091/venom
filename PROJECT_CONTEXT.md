@@ -308,7 +308,7 @@ No server actions. All mutations go through API routes.
 - **Frontend**: Vercel (Next.js)
 - **Database**: Supabase PostgreSQL
 - **Auth**: Supabase Auth
-- **Storage**: Supabase Storage (optional)
+- **Storage**: Audited — no Supabase Storage currently used (files stored via URL in `files` table)
 
 ## 22. Supabase Configuration
 

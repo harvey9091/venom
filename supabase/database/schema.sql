@@ -47,14 +47,6 @@ create table if not exists public.memberships (
   unique (user_id, workspace_id)
 );
 
-create table if not exists public.sessions (
-  id        uuid primary key default uuid_generate_v4(),
-  user_id   uuid not null references public.users(id) on delete cascade,
-  token     text unique not null,
-  created_at timestamptz default now(),
-  expires_at timestamptz not null
-);
-
 create table if not exists public.companies (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
@@ -427,7 +419,6 @@ alter table public.automation_logs enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.api_keys enable row level security;
 alter table public.workspace_preferences enable row level security;
-alter table public.sessions enable row level security;
 
 -- Helper: get the current user's workspace IDs
 create or replace function public.current_user_workspace_ids()
@@ -466,10 +457,6 @@ create policy "memberships_owner_write" on public.memberships for all
     join public.users u on u.id = m.user_id
     where u.auth_id = auth.uid() and m.role = 'owner'
   ));
-
--- Sessions: users can read their own sessions
-create policy "sessions_self_read" on public.sessions for select
-  using (user_id in (select id from public.users where auth_id = auth.uid()));
 
 -- All workspace-scoped tables: members can read/write
 create policy "ws_companies_read" on public.companies for select
@@ -570,10 +557,32 @@ create policy "ws_audit_logs_write" on public.audit_logs for insert
   with check (workspace_id in (select public.current_user_workspace_ids()));
 
 create policy "ws_api_keys_read" on public.api_keys for select
-  using (workspace_id in (select public.current_user_workspace_ids()));
-create policy "ws_api_keys_write" on public.api_keys for all
-  using (workspace_id in (select public.current_user_workspace_ids()))
+  using (workspace_id in (
+    select workspace_id from public.memberships m
+    join public.users u on u.id = m.user_id
+    where u.auth_id = auth.uid() and m.role in ('owner', 'admin')
+  ));
+create policy "ws_api_keys_insert" on public.api_keys for insert
   with check (workspace_id in (select public.current_user_workspace_ids()));
+create policy "ws_api_keys_update" on public.api_keys for update
+  using (workspace_id in (
+    select workspace_id from public.memberships m
+    join public.users u on u.id = m.user_id
+    where u.auth_id = auth.uid() and m.role in ('owner', 'admin')
+  ))
+  with check (workspace_id in (select public.current_user_workspace_ids()));
+create policy "ws_api_keys_delete" on public.api_keys for delete
+  using (workspace_id in (
+    select workspace_id from public.memberships m
+    join public.users u on u.id = m.user_id
+    where u.auth_id = auth.uid() and m.role = 'owner'
+  ));
+
+create policy "ws_automation_logs_read" on public.automation_logs for select
+  using (automation_id in (
+    select id from public.automations
+    where workspace_id in (select public.current_user_workspace_ids())
+  ));
 
 create policy "ws_calendar_read" on public.calendar_events for select
   using (workspace_id in (select public.current_user_workspace_ids()));
@@ -634,13 +643,29 @@ end $$;
 
 create or replace function public.upsert_nav_mode(ws_uuid uuid, mode text)
 returns void
-language sql
+language plpgsql
 security definer
 as $$
+begin
+  if not exists (
+    select 1 from public.memberships m
+    join public.users u on u.id = m.user_id
+    where u.auth_id = auth.uid()
+      and m.workspace_id = ws_uuid
+      and m.role in ('owner', 'admin')
+  ) then
+    raise exception 'Forbidden: workspace owner or admin required';
+  end if;
+
   insert into public.workspace_preferences (workspace_id, nav_mode)
   values (ws_uuid, mode)
   on conflict (workspace_id) do update set nav_mode = excluded.nav_mode, updated_at = now();
+end;
 $$;
+
+-- Restrict execution to authenticated users only
+revoke execute on function public.upsert_nav_mode(uuid, text) from public;
+grant execute on function public.upsert_nav_mode(uuid, text) to authenticated;
 
 -- -------------------------------------------------------------
 -- 7. Realtime publication
@@ -662,23 +687,8 @@ end $$;
 -- -------------------------------------------------------------
 -- 8. Storage buckets
 -- -------------------------------------------------------------
-
-insert into storage.buckets (id, name, public) values ('venom-files', 'venom-files', true)
-  on conflict (id) do nothing;
-insert into storage.buckets (id, name, public) values ('venom-avatars', 'venom-avatars', true)
-  on conflict (id) do nothing;
-insert into storage.buckets (id, name, public) values ('venom-workspace-logos', 'venom-workspace-logos', true)
-  on conflict (id) do nothing;
-
--- Storage policies
-create policy "venom_files_read" on storage.objects for select
-  using (bucket_id = 'venom-files');
-create policy "venom_files_write" on storage.objects for insert
-  with check (bucket_id = 'venom-files');
-create policy "venom_files_delete" on storage.objects for delete
-  using (bucket_id = 'venom-files');
-
-create policy "venom_avatars_read" on storage.objects for select
-  using (bucket_id = 'venom-avatars');
-create policy "venom_avatars_write" on storage.objects for insert
-  with check (bucket_id = 'venom-avatars');
+-- NOTE: Application does not currently use Supabase Storage.
+-- File URLs are stored as text in the files table.
+-- Storage configuration is omitted to avoid unused, insecure policies.
+-- If file upload via Supabase Storage is implemented later,
+-- add workspace-scoped policies here.

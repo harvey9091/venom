@@ -127,7 +127,7 @@ The loading UI had no error state or retry mechanism, leaving users stuck indefi
 - Complete RLS policies
 - Indexes for performance
 - Triggers for `updated_at`
-- Storage buckets configured
+- Storage integration audited — no Supabase Storage currently used
 
 ## Database Changes
 
