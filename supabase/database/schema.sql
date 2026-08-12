@@ -1,20 +1,66 @@
 -- =============================================================
 --  VENOM CRM — Canonical Supabase/PostgreSQL Schema
---  Source of truth: prisma/schema.prisma
---  Execute in Supabase SQL Editor on a clean database.
+--  TRUE FROM-SCRATCH INSTALLER
+--  Execute in Supabase SQL Editor. Safe to re-run.
 -- =============================================================
 
--- -------------------------------------------------------------
--- 1. Extensions
--- -------------------------------------------------------------
+-- =============================================================
+-- 1. EXTENSIONS
+-- =============================================================
+
 create extension if not exists "uuid-ossp";
 create extension if not exists "pgcrypto";
 
--- -------------------------------------------------------------
--- 2. Tables
--- -------------------------------------------------------------
+-- =============================================================
+-- 2. RESET — drop all Venom CRM application objects
+-- =============================================================
+-- Only touches Venom CRM objects in public schema.
+-- Does NOT touch auth.users, Supabase system schemas, or
+-- anything outside the application's own database objects.
+--
+-- WARNING: This deletes all existing Venom CRM application data.
+--
+-- Correct dependency order:
+--   1. Drop tables first (CASCADE removes policies, triggers, indexes, FKs)
+--   2. Then drop functions (no remaining dependent objects)
 
-create table if not exists public.users (
+DROP TABLE IF EXISTS public.automation_logs CASCADE;
+DROP TABLE IF EXISTS public.automations CASCADE;
+DROP TABLE IF EXISTS public.api_keys CASCADE;
+DROP TABLE IF EXISTS public.workspace_preferences CASCADE;
+DROP TABLE IF EXISTS public.audit_logs CASCADE;
+DROP TABLE IF EXISTS public.custom_fields CASCADE;
+DROP TABLE IF EXISTS public.entity_tags CASCADE;
+DROP TABLE IF EXISTS public.tags CASCADE;
+DROP TABLE IF EXISTS public.notifications CASCADE;
+DROP TABLE IF EXISTS public.activities CASCADE;
+DROP TABLE IF EXISTS public.files CASCADE;
+DROP TABLE IF EXISTS public.notes CASCADE;
+DROP TABLE IF EXISTS public.meetings CASCADE;
+DROP TABLE IF EXISTS public.calendar_events CASCADE;
+DROP TABLE IF EXISTS public.comments CASCADE;
+DROP TABLE IF EXISTS public.task_watchers CASCADE;
+DROP TABLE IF EXISTS public.tasks CASCADE;
+DROP TABLE IF EXISTS public.deals CASCADE;
+DROP TABLE IF EXISTS public.stages CASCADE;
+DROP TABLE IF EXISTS public.pipelines CASCADE;
+DROP TABLE IF EXISTS public.leads CASCADE;
+DROP TABLE IF EXISTS public.contacts CASCADE;
+DROP TABLE IF EXISTS public.companies CASCADE;
+DROP TABLE IF EXISTS public.memberships CASCADE;
+DROP TABLE IF EXISTS public.workspaces CASCADE;
+DROP TABLE IF EXISTS public.users CASCADE;
+
+-- Now safe to drop functions (tables/policies/triggers already removed)
+DROP FUNCTION IF EXISTS public.touch_updated_at();
+DROP FUNCTION IF EXISTS public.upsert_nav_mode(uuid, text);
+DROP FUNCTION IF EXISTS public.current_user_workspace_ids();
+
+-- =============================================================
+-- 3. TABLES
+-- =============================================================
+
+create table public.users (
   id          uuid primary key default uuid_generate_v4(),
   auth_id     uuid unique references auth.users(id) on delete cascade,
   email       text unique not null,
@@ -26,7 +72,7 @@ create table if not exists public.users (
   updated_at  timestamptz default now()
 );
 
-create table if not exists public.workspaces (
+create table public.workspaces (
   id            uuid primary key default uuid_generate_v4(),
   slug          text unique not null,
   name          text not null,
@@ -38,7 +84,7 @@ create table if not exists public.workspaces (
   updated_at    timestamptz default now()
 );
 
-create table if not exists public.memberships (
+create table public.memberships (
   id           uuid primary key default uuid_generate_v4(),
   user_id      uuid not null references public.users(id) on delete cascade,
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
@@ -47,7 +93,7 @@ create table if not exists public.memberships (
   unique (user_id, workspace_id)
 );
 
-create table if not exists public.companies (
+create table public.companies (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   name         text not null,
@@ -66,7 +112,7 @@ create table if not exists public.companies (
   updated_at   timestamptz default now()
 );
 
-create table if not exists public.contacts (
+create table public.contacts (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   company_id   uuid references public.companies(id) on delete set null,
@@ -83,7 +129,7 @@ create table if not exists public.contacts (
   updated_at   timestamptz default now()
 );
 
-create table if not exists public.leads (
+create table public.leads (
   id              uuid primary key default uuid_generate_v4(),
   workspace_id    uuid not null references public.workspaces(id) on delete cascade,
   contact_id      uuid references public.contacts(id) on delete set null,
@@ -104,7 +150,7 @@ create table if not exists public.leads (
   updated_at      timestamptz default now()
 );
 
-create table if not exists public.pipelines (
+create table public.pipelines (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   name         text not null,
@@ -114,7 +160,7 @@ create table if not exists public.pipelines (
   updated_at   timestamptz default now()
 );
 
-create table if not exists public.stages (
+create table public.stages (
   id           uuid primary key default uuid_generate_v4(),
   pipeline_id  uuid not null references public.pipelines(id) on delete cascade,
   name         text not null,
@@ -125,7 +171,7 @@ create table if not exists public.stages (
   is_lost      boolean default false
 );
 
-create table if not exists public.deals (
+create table public.deals (
   id             uuid primary key default uuid_generate_v4(),
   workspace_id   uuid not null references public.workspaces(id) on delete cascade,
   pipeline_id    uuid not null references public.pipelines(id) on delete cascade,
@@ -144,7 +190,7 @@ create table if not exists public.deals (
   updated_at     timestamptz default now()
 );
 
-create table if not exists public.tasks (
+create table public.tasks (
   id            uuid primary key default uuid_generate_v4(),
   workspace_id  uuid not null references public.workspaces(id) on delete cascade,
   deal_id       uuid references public.deals(id) on delete set null,
@@ -164,14 +210,14 @@ create table if not exists public.tasks (
   updated_at    timestamptz default now()
 );
 
-create table if not exists public.task_watchers (
+create table public.task_watchers (
   id        uuid primary key default uuid_generate_v4(),
   task_id   uuid not null references public.tasks(id) on delete cascade,
   user_id   uuid not null references public.users(id) on delete cascade,
   unique (task_id, user_id)
 );
 
-create table if not exists public.comments (
+create table public.comments (
   id         uuid primary key default uuid_generate_v4(),
   task_id    uuid not null references public.tasks(id) on delete cascade,
   author_id  uuid not null references public.users(id) on delete cascade,
@@ -179,7 +225,7 @@ create table if not exists public.comments (
   created_at timestamptz default now()
 );
 
-create table if not exists public.calendar_events (
+create table public.calendar_events (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   title        text not null,
@@ -194,7 +240,7 @@ create table if not exists public.calendar_events (
   updated_at   timestamptz default now()
 );
 
-create table if not exists public.meetings (
+create table public.meetings (
   id         uuid primary key default uuid_generate_v4(),
   event_id   uuid not null references public.calendar_events(id) on delete cascade,
   contact_id uuid references public.contacts(id) on delete set null,
@@ -204,7 +250,7 @@ create table if not exists public.meetings (
   created_at timestamptz default now()
 );
 
-create table if not exists public.notes (
+create table public.notes (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   author_id    uuid not null references public.users(id) on delete cascade,
@@ -219,7 +265,7 @@ create table if not exists public.notes (
   updated_at   timestamptz default now()
 );
 
-create table if not exists public.files (
+create table public.files (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   uploader_id  uuid references public.users(id) on delete set null,
@@ -236,7 +282,7 @@ create table if not exists public.files (
   created_at   timestamptz default now()
 );
 
-create table if not exists public.activities (
+create table public.activities (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   actor_id     uuid references public.users(id) on delete set null,
@@ -250,7 +296,7 @@ create table if not exists public.activities (
   created_at   timestamptz default now()
 );
 
-create table if not exists public.notifications (
+create table public.notifications (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   user_id      uuid not null references public.users(id) on delete cascade,
@@ -262,7 +308,7 @@ create table if not exists public.notifications (
   created_at   timestamptz default now()
 );
 
-create table if not exists public.tags (
+create table public.tags (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   name         text not null,
@@ -271,7 +317,7 @@ create table if not exists public.tags (
   unique (workspace_id, name)
 );
 
-create table if not exists public.entity_tags (
+create table public.entity_tags (
   id          uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   tag_id      uuid not null references public.tags(id) on delete cascade,
@@ -280,7 +326,7 @@ create table if not exists public.entity_tags (
   created_at  timestamptz default now()
 );
 
-create table if not exists public.custom_fields (
+create table public.custom_fields (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   entity_type  text not null,
@@ -293,7 +339,7 @@ create table if not exists public.custom_fields (
   unique (workspace_id, entity_type, key)
 );
 
-create table if not exists public.automations (
+create table public.automations (
   id            uuid primary key default uuid_generate_v4(),
   workspace_id  uuid not null references public.workspaces(id) on delete cascade,
   name          text not null,
@@ -308,7 +354,7 @@ create table if not exists public.automations (
   updated_at    timestamptz default now()
 );
 
-create table if not exists public.automation_logs (
+create table public.automation_logs (
   id           uuid primary key default uuid_generate_v4(),
   automation_id uuid not null references public.automations(id) on delete cascade,
   status       text not null,
@@ -316,7 +362,7 @@ create table if not exists public.automation_logs (
   created_at   timestamptz default now()
 );
 
-create table if not exists public.audit_logs (
+create table public.audit_logs (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   actor_id     uuid references public.users(id) on delete set null,
@@ -327,7 +373,7 @@ create table if not exists public.audit_logs (
   created_at   timestamptz default now()
 );
 
-create table if not exists public.api_keys (
+create table public.api_keys (
   id           uuid primary key default uuid_generate_v4(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   creator_id   uuid not null references public.users(id) on delete cascade,
@@ -339,7 +385,7 @@ create table if not exists public.api_keys (
   created_at   timestamptz default now()
 );
 
-create table if not exists public.workspace_preferences (
+create table public.workspace_preferences (
   workspace_id uuid primary key references public.workspaces(id) on delete cascade,
   nav_mode     text default 'sidebar',
   updated_at   timestamptz default now()
@@ -350,48 +396,112 @@ do $$ begin
   alter table public.leads
     add constraint leads_converted_deal_id_fkey
     foreign key (converted_deal_id) references public.deals(id) on delete set null;
-exception when duplicate_object then null; end $$;
+  exception when duplicate_object then null;
+end $$;
 
--- -------------------------------------------------------------
--- 3. Indexes
--- -------------------------------------------------------------
+-- =============================================================
+-- 4. INDEXES
+-- =============================================================
 
-create index if not exists idx_memberships_user on public.memberships(user_id);
-create index if not exists idx_memberships_workspace on public.memberships(workspace_id);
-create index if not exists idx_companies_workspace on public.companies(workspace_id);
-create index if not exists idx_contacts_workspace on public.contacts(workspace_id);
-create index if not exists idx_contacts_company on public.contacts(company_id);
-create index if not exists idx_leads_workspace on public.leads(workspace_id);
-create index if not exists idx_leads_status on public.leads(status);
-create index if not exists idx_leads_owner on public.leads(owner_id);
-create index if not exists idx_leads_email on public.leads(email);
-create index if not exists idx_deals_workspace on public.deals(workspace_id);
-create index if not exists idx_deals_pipeline on public.deals(pipeline_id);
-create index if not exists idx_deals_stage on public.deals(stage_id);
-create index if not exists idx_deals_owner on public.deals(owner_id);
-create index if not exists idx_tasks_workspace on public.tasks(workspace_id);
-create index if not exists idx_tasks_assignee on public.tasks(assignee_id);
-create index if not exists idx_tasks_due_date on public.tasks(due_date);
-create index if not exists idx_tasks_parent on public.tasks(parent_task_id);
-create index if not exists idx_notes_workspace on public.notes(workspace_id);
-create index if not exists idx_notes_lead on public.notes(lead_id);
-create index if not exists idx_activities_workspace on public.activities(workspace_id);
-create index if not exists idx_activities_created on public.activities(created_at desc);
-create index if not exists idx_notifications_user on public.notifications(user_id, read);
-create index if not exists idx_entity_tags_entity on public.entity_tags(entity_type, entity_id);
-create index if not exists idx_audit_logs_workspace on public.audit_logs(workspace_id, created_at desc);
-create index if not exists idx_calendar_events_workspace on public.calendar_events(workspace_id, start_at);
-create index if not exists idx_stages_pipeline on public.stages(pipeline_id, "order");
-create index if not exists idx_tags_workspace on public.tags(workspace_id);
-create index if not exists idx_custom_fields_workspace on public.custom_fields(workspace_id);
-create index if not exists idx_entity_tags_workspace on public.entity_tags(workspace_id);
-create index if not exists idx_activities_lead on public.activities(lead_id);
-create index if not exists idx_activities_deal on public.activities(deal_id);
-create index if not exists idx_workspace_prefs on public.workspace_preferences(workspace_id);
+create index idx_memberships_user on public.memberships(user_id);
+create index idx_memberships_workspace on public.memberships(workspace_id);
+create index idx_companies_workspace on public.companies(workspace_id);
+create index idx_contacts_workspace on public.contacts(workspace_id);
+create index idx_contacts_company on public.contacts(company_id);
+create index idx_leads_workspace on public.leads(workspace_id);
+create index idx_leads_status on public.leads(status);
+create index idx_leads_owner on public.leads(owner_id);
+create index idx_leads_email on public.leads(email);
+create index idx_deals_workspace on public.deals(workspace_id);
+create index idx_deals_pipeline on public.deals(pipeline_id);
+create index idx_deals_stage on public.deals(stage_id);
+create index idx_deals_owner on public.deals(owner_id);
+create index idx_tasks_workspace on public.tasks(workspace_id);
+create index idx_tasks_assignee on public.tasks(assignee_id);
+create index idx_tasks_due_date on public.tasks(due_date);
+create index idx_tasks_parent on public.tasks(parent_task_id);
+create index idx_notes_workspace on public.notes(workspace_id);
+create index idx_notes_lead on public.notes(lead_id);
+create index idx_activities_workspace on public.activities(workspace_id);
+create index idx_activities_created on public.activities(created_at desc);
+create index idx_notifications_user on public.notifications(user_id, read);
+create index idx_entity_tags_entity on public.entity_tags(entity_type, entity_id);
+create index idx_audit_logs_workspace on public.audit_logs(workspace_id, created_at desc);
+create index idx_calendar_events_workspace on public.calendar_events(workspace_id, start_at);
+create index idx_stages_pipeline on public.stages(pipeline_id, "order");
+create index idx_tags_workspace on public.tags(workspace_id);
+create index idx_custom_fields_workspace on public.custom_fields(workspace_id);
+create index idx_entity_tags_workspace on public.entity_tags(workspace_id);
+create index idx_activities_lead on public.activities(lead_id);
+create index idx_activities_deal on public.activities(deal_id);
+create index idx_workspace_prefs on public.workspace_preferences(workspace_id);
 
--- -------------------------------------------------------------
--- 4. RLS Policies
--- -------------------------------------------------------------
+-- =============================================================
+-- 5. FUNCTIONS
+-- =============================================================
+
+create function public.current_user_workspace_ids()
+returns setof uuid
+language sql
+security definer
+as $$
+  select workspace_id from public.memberships m
+  join public.users u on u.id = m.user_id
+  where u.auth_id = auth.uid();
+$$;
+
+create function public.touch_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+create function public.upsert_nav_mode(ws_uuid uuid, mode text)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  if not exists (
+    select 1 from public.memberships m
+    join public.users u on u.id = m.user_id
+    where u.auth_id = auth.uid()
+      and m.workspace_id = ws_uuid
+      and m.role in ('owner', 'admin')
+  ) then
+    raise exception 'Forbidden: workspace owner or admin required';
+  end if;
+
+  insert into public.workspace_preferences (workspace_id, nav_mode)
+  values (ws_uuid, mode)
+  on conflict (workspace_id) do update set nav_mode = excluded.nav_mode, updated_at = now();
+end;
+$$;
+
+revoke execute on function public.upsert_nav_mode(uuid, text) from public;
+grant execute on function public.upsert_nav_mode(uuid, text) to authenticated;
+
+-- =============================================================
+-- 6. TRIGGERS
+-- =============================================================
+
+do $$
+declare tbl text;
+begin
+  for tbl in
+    select unnest(array['users','workspaces','memberships','companies','contacts','leads','pipelines','stages','deals','tasks','notes','calendar_events','automations','workspace_preferences'])
+  loop
+    execute format('create trigger trg_%s_touch before update on public.%s for each row execute function public.touch_updated_at();', tbl, tbl);
+  end loop;
+end $$;
+
+-- =============================================================
+-- 7. RLS ENABLEMENT
+-- =============================================================
 
 alter table public.users enable row level security;
 alter table public.workspaces enable row level security;
@@ -420,22 +530,17 @@ alter table public.audit_logs enable row level security;
 alter table public.api_keys enable row level security;
 alter table public.workspace_preferences enable row level security;
 
--- Helper: get the current user's workspace IDs
-create or replace function public.current_user_workspace_ids()
-returns setof uuid
-language sql
-security definer
-as $$
-  select workspace_id from public.memberships m
-  join public.users u on u.id = m.user_id
-  where u.auth_id = auth.uid();
-$$;
+-- =============================================================
+-- 8. RLS POLICIES
+-- =============================================================
 
--- Users can read their own profile
-create policy "users_self_read" on public.users for select using (auth_id = auth.uid());
-create policy "users_self_update" on public.users for update using (auth_id = auth.uid());
+-- Users
+create policy "users_self_read" on public.users for select
+  using (auth_id = auth.uid());
+create policy "users_self_update" on public.users for update
+  using (auth_id = auth.uid());
 
--- Workspaces: members can read, only owners can update
+-- Workspaces
 create policy "workspaces_member_read" on public.workspaces for select
   using (id in (select public.current_user_workspace_ids()));
 create policy "workspaces_owner_update" on public.workspaces for update
@@ -443,7 +548,7 @@ create policy "workspaces_owner_update" on public.workspaces for update
     join public.users u on u.id = m.user_id
     where u.auth_id = auth.uid() and m.role = 'owner'));
 
--- Memberships: workspace members can read; owners can manage
+-- Memberships
 create policy "memberships_member_read" on public.memberships for select
   using (workspace_id in (select public.current_user_workspace_ids()));
 create policy "memberships_owner_write" on public.memberships for all
@@ -458,7 +563,7 @@ create policy "memberships_owner_write" on public.memberships for all
     where u.auth_id = auth.uid() and m.role = 'owner'
   ));
 
--- All workspace-scoped tables: members can read/write
+-- Workspace-scoped tables: members can read/write
 create policy "ws_companies_read" on public.companies for select
   using (workspace_id in (select public.current_user_workspace_ids()));
 create policy "ws_companies_write" on public.companies for all
@@ -523,7 +628,6 @@ create policy "ws_notifications_read" on public.notifications for select
 create policy "ws_notifications_write" on public.notifications for all
   using (workspace_id in (select public.current_user_workspace_ids()))
   with check (workspace_id in (select public.current_user_workspace_ids()));
-
 create policy "notifications_self_update" on public.notifications for update
   using (user_id in (select id from public.users where auth_id = auth.uid()));
 
@@ -556,6 +660,7 @@ create policy "ws_audit_logs_read" on public.audit_logs for select
 create policy "ws_audit_logs_write" on public.audit_logs for insert
   with check (workspace_id in (select public.current_user_workspace_ids()));
 
+-- API keys — explicit per-action policies, NO FOR ALL
 create policy "ws_api_keys_read" on public.api_keys for select
   using (workspace_id in (
     select workspace_id from public.memberships m
@@ -578,12 +683,14 @@ create policy "ws_api_keys_delete" on public.api_keys for delete
     where u.auth_id = auth.uid() and m.role = 'owner'
   ));
 
+-- Automation logs — workspace-isolated read via automation ownership
 create policy "ws_automation_logs_read" on public.automation_logs for select
   using (automation_id in (
     select id from public.automations
     where workspace_id in (select public.current_user_workspace_ids())
   ));
 
+-- Calendar / meetings
 create policy "ws_calendar_read" on public.calendar_events for select
   using (workspace_id in (select public.current_user_workspace_ids()));
 create policy "ws_calendar_write" on public.calendar_events for all
@@ -596,12 +703,14 @@ create policy "ws_meetings_write" on public.meetings for all
   using (event_id in (select id from public.calendar_events where workspace_id in (select public.current_user_workspace_ids())))
   with check (event_id in (select id from public.calendar_events where workspace_id in (select public.current_user_workspace_ids())));
 
+-- Comments
 create policy "comments_read" on public.comments for select
   using (task_id in (select id from public.tasks where workspace_id in (select public.current_user_workspace_ids())));
 create policy "comments_write" on public.comments for all
   using (task_id in (select id from public.tasks where workspace_id in (select public.current_user_workspace_ids())))
   with check (task_id in (select id from public.tasks where workspace_id in (select public.current_user_workspace_ids())));
 
+-- Workspace preferences
 create policy "ws_prefs_read" on public.workspace_preferences for select
   using (workspace_id in (select public.current_user_workspace_ids()));
 create policy "ws_prefs_write" on public.workspace_preferences for update
@@ -612,64 +721,9 @@ create policy "ws_prefs_write" on public.workspace_preferences for update
 create policy "ws_prefs_insert" on public.workspace_preferences for insert
   with check (workspace_id in (select public.current_user_workspace_ids()));
 
--- -------------------------------------------------------------
--- 5. Triggers — updated_at auto-maintenance
--- -------------------------------------------------------------
-
-create or replace function public.touch_updated_at()
-returns trigger
-language plpgsql
-as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$;
-
-do $$
-declare tbl text;
-begin
-  for tbl in
-    select unnest(array['users','workspaces','memberships','companies','contacts','leads','pipelines','stages','deals','tasks','notes','calendar_events','automations','workspace_preferences'])
-  loop
-    execute format('drop trigger if exists trg_%s_touch on public.%s', tbl, tbl);
-    execute format('create trigger trg_%s_touch before update on public.%s for each row execute function public.touch_updated_at();', tbl, tbl);
-  end loop;
-end $$;
-
--- -------------------------------------------------------------
--- 6. Functions
--- -------------------------------------------------------------
-
-create or replace function public.upsert_nav_mode(ws_uuid uuid, mode text)
-returns void
-language plpgsql
-security definer
-as $$
-begin
-  if not exists (
-    select 1 from public.memberships m
-    join public.users u on u.id = m.user_id
-    where u.auth_id = auth.uid()
-      and m.workspace_id = ws_uuid
-      and m.role in ('owner', 'admin')
-  ) then
-    raise exception 'Forbidden: workspace owner or admin required';
-  end if;
-
-  insert into public.workspace_preferences (workspace_id, nav_mode)
-  values (ws_uuid, mode)
-  on conflict (workspace_id) do update set nav_mode = excluded.nav_mode, updated_at = now();
-end;
-$$;
-
--- Restrict execution to authenticated users only
-revoke execute on function public.upsert_nav_mode(uuid, text) from public;
-grant execute on function public.upsert_nav_mode(uuid, text) to authenticated;
-
--- -------------------------------------------------------------
--- 7. Realtime publication
--- -------------------------------------------------------------
+-- =============================================================
+-- 9. REALTIME PUBLICATION
+-- =============================================================
 
 do $$
 declare tbl text;
@@ -683,12 +737,3 @@ begin
     end;
   end loop;
 end $$;
-
--- -------------------------------------------------------------
--- 8. Storage buckets
--- -------------------------------------------------------------
--- NOTE: Application does not currently use Supabase Storage.
--- File URLs are stored as text in the files table.
--- Storage configuration is omitted to avoid unused, insecure policies.
--- If file upload via Supabase Storage is implemented later,
--- add workspace-scoped policies here.
