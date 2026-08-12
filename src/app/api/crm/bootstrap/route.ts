@@ -78,6 +78,14 @@ async function getSupabaseUserFromRequest(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  if (!process.env.DATABASE_URL) {
+    console.error('[CRM Bootstrap] DATABASE_URL environment variable is not set')
+    return NextResponse.json(
+      { ok: false, code: 'CONFIGURATION_ERROR', error: 'Server configuration error: DATABASE_URL is missing' },
+      { status: 500 }
+    )
+  }
+
   try {
     const supabaseUser = await getSupabaseUserFromRequest(request)
 
