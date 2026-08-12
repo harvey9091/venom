@@ -10,7 +10,6 @@ function parseDatabaseUrl(url: string) {
       databaseUrlHostname: parsed.hostname,
       databaseUrlPort: parsed.port ? Number(parsed.port) : null,
       databaseUrlDatabaseName: databaseName,
-      databaseUrlUsername: parsed.username || null,
     }
   } catch {
     return {
@@ -18,7 +17,6 @@ function parseDatabaseUrl(url: string) {
       databaseUrlHostname: null,
       databaseUrlPort: null,
       databaseUrlDatabaseName: null,
-      databaseUrlUsername: null,
     }
   }
 }
@@ -37,7 +35,6 @@ export async function GET() {
     diagnostics.databaseUrlHostname = parsed.databaseUrlHostname
     diagnostics.databaseUrlPort = parsed.databaseUrlPort
     diagnostics.databaseUrlDatabaseName = parsed.databaseUrlDatabaseName
-    diagnostics.databaseUrlUsername = parsed.databaseUrlUsername
   }
 
   if (!process.env.DATABASE_URL) {
