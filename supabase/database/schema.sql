@@ -443,9 +443,9 @@ create index idx_workspace_prefs on public.workspace_preferences(workspace_id);
 create function public.current_user_workspace_ids()
 returns setof uuid
 language sql
-security definer
+security invoker
 as $$
-  select workspace_id from public.memberships m
+  select distinct workspace_id from public.memberships m
   join public.users u on u.id = m.user_id
   where u.auth_id = auth.uid();
 $$;
@@ -550,7 +550,7 @@ create policy "workspaces_owner_update" on public.workspaces for update
 
 -- Memberships
 create policy "memberships_member_read" on public.memberships for select
-  using (workspace_id in (select public.current_user_workspace_ids()));
+  using (user_id in (select id from public.users where auth_id = auth.uid()));
 create policy "memberships_owner_write" on public.memberships for all
   using (workspace_id in (
     select workspace_id from public.memberships m
