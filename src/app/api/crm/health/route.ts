@@ -1,13 +1,43 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
+function parseDatabaseUrl(url: string) {
+  try {
+    const parsed = new URL(url)
+    const databaseName = parsed.pathname.replace(/^\//, '') || null
+    return {
+      databaseUrlProtocol: parsed.protocol.replace(/:$/, ''),
+      databaseUrlHostname: parsed.hostname,
+      databaseUrlPort: parsed.port ? Number(parsed.port) : null,
+      databaseUrlDatabaseName: databaseName,
+      databaseUrlUsername: parsed.username || null,
+    }
+  } catch {
+    return {
+      databaseUrlProtocol: null,
+      databaseUrlHostname: null,
+      databaseUrlPort: null,
+      databaseUrlDatabaseName: null,
+      databaseUrlUsername: null,
+    }
+  }
+}
+
 export async function GET() {
   const diagnostics: Record<string, unknown> = {
     nodeEnv: process.env.NODE_ENV,
     hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
-    databaseUrlPrefix: process.env.DATABASE_URL?.split('://')[0] || null,
     hasSupabaseUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
     vercel: Boolean(process.env.VERCEL),
+  }
+
+  if (process.env.DATABASE_URL) {
+    const parsed = parseDatabaseUrl(process.env.DATABASE_URL)
+    diagnostics.databaseUrlProtocol = parsed.databaseUrlProtocol
+    diagnostics.databaseUrlHostname = parsed.databaseUrlHostname
+    diagnostics.databaseUrlPort = parsed.databaseUrlPort
+    diagnostics.databaseUrlDatabaseName = parsed.databaseUrlDatabaseName
+    diagnostics.databaseUrlUsername = parsed.databaseUrlUsername
   }
 
   if (!process.env.DATABASE_URL) {
