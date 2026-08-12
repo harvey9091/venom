@@ -26,17 +26,21 @@ type BootstrapErrorCode =
 function classifyError(error: unknown): { code: BootstrapErrorCode; message: string; status: number } {
   const err = error instanceof Error ? error : new Error(String(error))
   const msg = err.message.toLowerCase()
+  const cause = err.cause instanceof Error ? err.cause.message.toLowerCase() : ''
 
   if (msg.includes('unauthorized') || msg.includes('jwt') || msg.includes('invalid token') || msg.includes('auth')) {
     return { code: 'AUTH_REQUIRED', message: 'Authentication required', status: 401 }
   }
-  if (msg.includes('p1001') || msg.includes('can\'t reach database') || msg.includes('connect') || msg.includes('timeout')) {
+  if (msg.includes('p1001') || msg.includes('can\'t reach database') || msg.includes('p1000') || msg.includes('p1002') || msg.includes('p1003') || msg.includes('p1004') || msg.includes('p1005') || msg.includes('p1006') || msg.includes('p1007') || msg.includes('p1008') || msg.includes('p1009') || msg.includes('connect') || msg.includes('timeout') || msg.includes('econnrefused') || msg.includes('enotfound') || msg.includes('econnreset') || msg.includes('socket hang up') || cause.includes('connect') || cause.includes('timeout') || cause.includes('econnrefused')) {
     return { code: 'DATABASE_CONNECTION_ERROR', message: 'Database connection failed', status: 503 }
   }
-  if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('column') || msg.includes('schema')) {
+  if (msg.includes('environment variable') || msg.includes('env var') || msg.includes('missing') && msg.includes('database')) {
+    return { code: 'CONFIGURATION_ERROR', message: 'Server configuration error', status: 500 }
+  }
+  if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('column') || msg.includes('schema') || msg.includes('table')) {
     return { code: 'DATABASE_SCHEMA_ERROR', message: 'Database schema error', status: 500 }
   }
-  if (msg.includes('permission') || msg.includes('rls') || msg.includes('policy')) {
+  if (msg.includes('permission') || msg.includes('rls') || msg.includes('policy') || msg.includes('access denied')) {
     return { code: 'DATABASE_PERMISSION_ERROR', message: 'Database permission error', status: 500 }
   }
   if (msg.includes('unique') || msg.includes('duplicate') || msg.includes('constraint') || msg.includes('violation')) {
@@ -192,7 +196,20 @@ export async function GET(request: NextRequest) {
       data: { user, workspace, members, tags, memberships: serializedMemberships, freshlyProvisioned: false },
     })
   } catch (error) {
-    console.error('Bootstrap error:', error)
+    const err = error instanceof Error ? error : new Error(String(error))
+    const prismaError = err as { code?: string; meta?: unknown; cause?: unknown }
+    console.error('[CRM Bootstrap] Database connection failed')
+    console.error('[CRM Bootstrap] Error name:', err.name)
+    console.error('[CRM Bootstrap] Error message:', err.message)
+    if (prismaError.code) {
+      console.error('[CRM Bootstrap] Prisma error code:', prismaError.code)
+    }
+    if (prismaError.meta) {
+      console.error('[CRM Bootstrap] Prisma error meta:', JSON.stringify(prismaError.meta))
+    }
+    if (prismaError.cause) {
+      console.error('[CRM Bootstrap] Error cause:', prismaError.cause)
+    }
     const { code, message, status } = classifyError(error)
     return NextResponse.json(
       { ok: false, code, error: message },
