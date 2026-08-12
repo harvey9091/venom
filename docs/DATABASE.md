@@ -4,8 +4,21 @@
 
 Database is Supabase PostgreSQL. Connection via Prisma ORM using `DATABASE_URL`.
 
+For Vercel serverless runtime, `DATABASE_URL` MUST use the Supabase Transaction Pooler:
+
 ```
-postgresql://postgres:[password]@[host]:5432/postgres
+postgresql://postgres:[password]@aws-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
+```
+
+Get the EXACT `aws-<region>.pooler.supabase.com` hostname from:
+- Supabase Dashboard → Project Settings → Database → Connection string (Transaction mode)
+
+Do NOT use `db.<project>.supabase.co:5432` for the runtime `DATABASE_URL`. That is the direct connection, not the pooler.
+
+If you also need a direct connection for migrations, set `DIRECT_URL` separately:
+
+```
+postgresql://postgres:[password]@db.<project>.supabase.co:5432/postgres
 ```
 
 ## Schema Source of Truth

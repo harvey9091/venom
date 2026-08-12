@@ -9,12 +9,23 @@ The application is configured for Vercel deployment via `vercel.json`.
 Required in Vercel project settings:
 
 ```
-DATABASE_URL=postgresql://postgres:[password]@[host]:5432/postgres
+# RUNTIME: Supabase Transaction Pooler (port 6543)
+# Get the EXACT hostname from Supabase Dashboard → Connect → Transaction pooler
+# Format: postgresql://postgres:[password]@aws-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
+DATABASE_URL=postgresql://postgres:[password]@aws-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
+
+# MIGRATIONS ONLY: direct Supabase connection (port 5432)
+# This is ONLY needed if running `prisma migrate dev` from Vercel or CI.
+# For Vercel serverless runtime, DATABASE_URL above is sufficient.
+DIRECT_URL=postgresql://postgres:[password]@db.<project>.supabase.co:5432/postgres
+
 NEXT_PUBLIC_SUPABASE_URL=https://[project].supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=[anon-key]
 SUPABASE_SERVICE_ROLE_KEY=[service-role-key]
 NEXT_PUBLIC_APP_URL=https://[app-url].vercel.app
 ```
+
+**Important**: Replace `aws-<region>.pooler.supabase.com` with the EXACT hostname shown in your Supabase Dashboard. Do NOT use `db.<project>.supabase.co:6543` — that is not the transaction pooler endpoint.
 
 ### Build Settings
 
