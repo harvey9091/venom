@@ -16,8 +16,10 @@ export async function middleware(request: NextRequest) {
   const isAuthPage = authPages.some((page) => pathname.startsWith(page))
 
   // Protected paths
+  const publicPaths = ['/api/crm/health']
+  const isPublicPath = publicPaths.some((path) => pathname === path || pathname.startsWith(path + '/'))
   const protectedPaths = ['/api/crm', '/dashboard', '/pipelines', '/leads', '/deals', '/tasks', '/notes', '/automations', '/settings']
-  const isProtectedPath = protectedPaths.some((path) => pathname.startsWith(path) || pathname === '/dashboard')
+  const isProtectedPath = !isPublicPath && protectedPaths.some((path) => pathname.startsWith(path) || pathname === '/dashboard')
 
   // Redirect authenticated users away from auth pages
   if (isAuthPage && session) {
