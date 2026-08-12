@@ -206,12 +206,10 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     const prismaError = err as { code?: string; meta?: unknown; cause?: unknown }
-    console.error('[CRM Bootstrap] Database connection failed')
+    console.error('[CRM Bootstrap] Database schema error')
     console.error('[CRM Bootstrap] Error name:', err.name)
+    console.error('[CRM Bootstrap] Prisma error code:', prismaError.code)
     console.error('[CRM Bootstrap] Error message:', err.message)
-    if (prismaError.code) {
-      console.error('[CRM Bootstrap] Prisma error code:', prismaError.code)
-    }
     if (prismaError.meta) {
       console.error('[CRM Bootstrap] Prisma error meta:', JSON.stringify(prismaError.meta))
     }
@@ -219,8 +217,23 @@ export async function GET(request: NextRequest) {
       console.error('[CRM Bootstrap] Error cause:', prismaError.cause)
     }
     const { code, message, status } = classifyError(error)
+
+    const safeDiagnostics: Record<string, unknown> = {
+      errorName: err.name,
+      prismaCode: prismaError.code ?? null,
+      message: err.message,
+    }
+    if (prismaError.meta && typeof prismaError.meta === 'object') {
+      safeDiagnostics.meta = prismaError.meta
+    }
+    if (prismaError.cause) {
+      safeDiagnostics.cause = prismaError.cause instanceof Error
+        ? { name: prismaError.cause.name, message: prismaError.cause.message }
+        : prismaError.cause
+    }
+
     return NextResponse.json(
-      { ok: false, code, error: message },
+      { ok: false, code, error: message, diagnostics: safeDiagnostics },
       { status }
     )
   }
